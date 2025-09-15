@@ -387,7 +387,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _sendRouteToServer(String routeName, String nickname) async {
     if (_routeLinePoints.isEmpty) return;
 
-    final uri = Uri.parse('http://13.209.19.58:5000/add_route');
+    final uri = Uri.parse('http://15.164.164.156:5000/add_route');
     final body = {
       'route_name': routeName,
       'route_path': _routeLinePoints.map((p) => [p.latitude, p.longitude]).toList(),

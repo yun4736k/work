@@ -286,7 +286,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     }
     try {
       final response = await http.get(
-        Uri.parse('http://13.209.19.58:5000/check-nickname?nickname=$nickname'),
+        Uri.parse('http://15.164.164.156:5000/check-nickname?nickname=$nickname'),
       );
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
@@ -358,7 +358,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       DialogHelper.showMessage(context, result);
 
       if (result.contains("성공") || result.contains("완료")) {
-        final loginUrl = Uri.parse('http://13.209.19.58:5000/login');
+        final loginUrl = Uri.parse('http://15.164.164.156:5000/login');
         final loginResponse = await http.post(
           loginUrl,
           body: json.encode({'ID': id, 'PW': pw}),

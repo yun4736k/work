@@ -156,7 +156,7 @@ class _RunningStartScreenState extends State<RunningStartScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('http://13.209.19.58:5000/add_route'),
+        Uri.parse('http://15.164.164.156:5000/add_route'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
       );
