@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = "http://13.209.19.58:5000"; // 서버 주소로 교체
+  static const String baseUrl = "http://15.164.164.156:5000"; // 서버 주소로 교체
 
   // ✅ 아이디 중복 확인
   static Future<bool> checkDuplicateId(String id) async {

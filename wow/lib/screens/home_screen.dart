@@ -10,6 +10,7 @@ import 'login_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wow/services/dialog_helper.dart';
 import 'package:geocoding/geocoding.dart';
+import 'region_screen.dart' show RegionFilter, RegionFilterCriteria;
 
 Future<String> getPlaceNameFromLatLng(double lat, double lng) async {
 try {
@@ -48,10 +49,17 @@ List<String> _lastSelectedCategories = [];
 
 @override
 void initState() {
-super.initState();
-_getCurrentLocation();
-_loadSavedCategories();
+  super.initState();
+  _getCurrentLocation();
+  _loadSavedCategories();
+
+// 예: widget.userId가 로그인 아이디라면
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    await RegionFilter.ensureSelected(context, widget.userId);
+  });
+
 }
+
 Future<void> _saveSelectedCategories(List<String> categories) async {
 final prefs = await SharedPreferences.getInstance();
 await prefs.setStringList('last_categories', categories);
@@ -188,193 +196,160 @@ style: TextStyle(fontWeight: FontWeight.bold),
 );
 }
 
-
-
-
 Future<void> _fetchUserRecommendedRoute(List<String> categories) async {
-final categoryQuery = categories.join(',');
-final url = Uri.parse('http://13.209.19.58:5000/all_user_routes?category=$categoryQuery');
+  final categoryQuery = categories.join(',');
+  final url = Uri.parse('http://15.164.164.156:5000/all_user_routes?category=$categoryQuery');
 
-try {
-final response = await http.get(url);
-if (response.statusCode == 200) {
-final List<dynamic> data = jsonDecode(response.body);
+  try {
+    final response = await http.get(url);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
 
-if (data.isEmpty) {
-DialogHelper.showMessage(context, "해당 카테고리의 경로가 없습니다.");
-return;
+      if (data.isEmpty) {
+        DialogHelper.showMessage(context, "해당 카테고리의 경로가 없습니다.");
+        return;
+      }
+
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFFF8F4EC),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text(
+              "유저 추천 경로 선택",
+              style: TextStyle(color: Color(0xFF2D2D2D), fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 300,
+              child: ListView.builder(
+                itemCount: data.length,
+                itemBuilder: (context, index) {
+                  final routeData = data[index];
+                  final String routeName = routeData['route_name'];
+                  final String nickname = routeData['nickname'];
+                  final List<LatLng> route = (routeData['route_path'] as List)
+                      .map<LatLng>((p) => LatLng((p[0] as num).toDouble(), (p[1] as num).toDouble()))
+                      .toList();
+
+                  final LatLng startPoint = route.first;
+                  String distanceText = "거리 정보 없음";
+                  if (_currentPosition != null) {
+                    final distanceInMeters = Geolocator.distanceBetween(
+                      _currentPosition!.latitude,
+                      _currentPosition!.longitude,
+                      startPoint.latitude,
+                      startPoint.longitude,
+                    );
+                    distanceText = "거리: ${(distanceInMeters / 1000).toStringAsFixed(2)} km";
+                  }
+
+                  return FutureBuilder<String>(
+                    future: getPlaceNameFromLatLng(startPoint.latitude, startPoint.longitude),
+                    builder: (context, snapshot) {
+                      final locationName = snapshot.data ?? "주소 변환 중...";
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 8),
+                        color: Colors.white,
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: InkWell(
+                          onTap: () {
+                            setState(() {
+                              _polylinePoints = route;
+                              _currentRouteName = routeName;
+                              _currentNickname = nickname;
+                            });
+                            _checkIfFavorited();
+                            if (route.isNotEmpty) {
+                              _mapController.move(route.first, 18.0);
+                            }
+                            Navigator.pop(context);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(routeName,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold, color: Color(0xFF2D2D2D))),
+                                      const SizedBox(height: 4),
+                                      Text("작성자: $nickname",
+                                          style: TextStyle(color: Colors.grey[800], fontSize: 13)),
+                                      Text("주소: $locationName",
+                                          style: TextStyle(color: Colors.grey[800], fontSize: 13)),
+                                      Text(distanceText,
+                                          style: TextStyle(color: Colors.grey[800], fontSize: 13)),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SizedBox(
+                                    width: 100,
+                                    height: 80,
+                                    child: FlutterMap(
+                                      options: MapOptions(
+                                        center: route.first,
+                                        zoom: 14,
+                                        interactiveFlags: InteractiveFlag.none,
+                                      ),
+                                      children: [
+                                        TileLayer(
+                                          urlTemplate:
+                                          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                          subdomains: const ['a', 'b', 'c'],
+                                        ),
+                                        MarkerLayer(
+                                          markers: [
+                                            Marker(
+                                              width: 30,
+                                              height: 30,
+                                              point: route.first,
+                                              child: const Icon(Icons.location_on,
+                                                  color: Color(0xFF3CAEA3), size: 24),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      DialogHelper.showMessage(context, "서버 오류: ${response.statusCode}");
+    }
+  } catch (e) {
+    DialogHelper.showMessage(context, "네트워크 오류: $e");
+  }
 }
-
-showDialog(
-context: context,
-builder: (context) {
-return AlertDialog(
-backgroundColor: Color(0xFFF8F4EC),
-shape: RoundedRectangleBorder(
-borderRadius: BorderRadius.circular(16),
-),
-title: Text(
-"유저 추천 경로 선택",
-style: TextStyle(
-color: Color(0xFF2D2D2D),
-fontWeight: FontWeight.bold,
-fontSize: 18,
-),
-),
-content: SizedBox(
-width: double.maxFinite,
-height: 300,
-child: ListView.builder(
-itemCount: data.length,
-itemBuilder: (context, index) {
-final routeData = data[index];
-final String routeName = routeData['route_name'];
-final String nickname = routeData['nickname'];
-final List<LatLng> route = (routeData['route_path'] as List)
-    .map<LatLng>((p) => LatLng((p[0] as num).toDouble(), (p[1] as num).toDouble()))
-    .toList();
-
-final LatLng startPoint = route.first;
-double? distanceInMeters;
-String distanceText = "";
-
-if (_currentPosition != null) {
-distanceInMeters = Geolocator.distanceBetween(
-_currentPosition!.latitude,
-_currentPosition!.longitude,
-startPoint.latitude,
-startPoint.longitude,
-);
-distanceText = "거리: ${(distanceInMeters / 1000).toStringAsFixed(2)} km";
-} else {
-distanceText = "거리 정보 없음";
-}
-
-return FutureBuilder<String>(
-future: getPlaceNameFromLatLng(startPoint.latitude, startPoint.longitude),
-builder: (context, snapshot) {
-final locationName = snapshot.data ?? "주소 변환 중...";
-
-return Card(
-margin: EdgeInsets.symmetric(vertical: 8),
-color: Colors.white,
-elevation: 2,
-shape: RoundedRectangleBorder(
-borderRadius: BorderRadius.circular(12),
-),
-child: InkWell(
-onTap: () {
-setState(() {
-_polylinePoints = route;
-_currentRouteName = routeName;
-_currentNickname = nickname;
-});
-_checkIfFavorited();
-if (route.isNotEmpty) {
-_mapController.move(route.first, 18.0);
-}
-Navigator.pop(context);
-},
-child: Padding(
-padding: const EdgeInsets.all(12.0),
-child: Row(
-children: [
-// 왼쪽 정보
-Expanded(
-flex: 2,
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text(
-routeName,
-style: TextStyle(
-fontWeight: FontWeight.bold,
-color: Color(0xFF2D2D2D),
-),
-),
-SizedBox(height: 4),
-Text(
-"작성자: $nickname",
-style: TextStyle(color: Colors.grey[800], fontSize: 13),
-),
-Text(
-"주소: $locationName", // ✅ 새로 추가된 부분
-style: TextStyle(color: Colors.grey[800], fontSize: 13),
-),
-Text(
-distanceText,
-style: TextStyle(color: Colors.grey[800], fontSize: 13),
-),
-],
-),
-),
-SizedBox(width: 12),
-// 오른쪽 미니맵
-ClipRRect(
-borderRadius: BorderRadius.circular(8),
-child: SizedBox(
-width: 100,
-height: 80,
-child: FlutterMap(
-options: MapOptions(
-center: route.first,
-zoom: 14,
-interactiveFlags: InteractiveFlag.none,
-),
-children: [
-TileLayer(
-urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-subdomains: ['a', 'b', 'c'],
-),
-MarkerLayer(
-markers: [
-Marker(
-width: 30,
-height: 30,
-point: route.first,
-child: Icon(
-Icons.location_on,
-color: Color(0xFF3CAEA3),
-size: 24,
-),
-),
-],
-),
-],
-),
-),
-),
-],
-),
-),
-),
-);
-},
-);
-},
-),
-),
-);
-},
-);
-} else {
-DialogHelper.showMessage(context, "서버 오류: ${response.statusCode}");
-}
-
-} catch (e) {
-DialogHelper.showMessage(context, "메시지");
-;
-}
-}
-
-
 
 Widget _buildStyledListTile(String title, IconData icon) {
 return InkWell(
 onTap: () async {
 if (title == '최근 경로') {
 final userId = widget.userId;
-final url = Uri.parse('http://13.209.19.58:5000/recent_route?user_id=$userId');
+final url = Uri.parse('http://15.164.164.156:5000/recent_route?user_id=$userId');
 try {
 final response = await http.get(url);
 if (response.statusCode == 200) {
@@ -468,173 +443,149 @@ style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
 );
 }
 
-
-
 Future<void> _fetchFavoriteRoutesAndShowList() async {
-final url = Uri.parse('http://13.209.19.58:5000/all_favorites?user_id=${widget.userId}');
-try {
-final response = await http.get(url);
-if (response.statusCode == 200) {
-final data = jsonDecode(response.body);
-final List favorites = data['favorites'];
+  final url = Uri.parse('http://15.164.164.156:5000/all_favorites?user_id=${widget.userId}');
+  try {
+    final response = await http.get(url);
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final List favorites = data['favorites'];
 
-if (favorites.isEmpty) {
-DialogHelper.showMessage(context, "즐겨찾기된 경로가 없습니다.");
-return;
-}
-// 리스트 다이얼로그 표시
-showDialog(
-context: context,
-builder: (context) {
-return AlertDialog(
-backgroundColor: Color(0xFFF8F4EC),
-shape: RoundedRectangleBorder(
-borderRadius: BorderRadius.circular(16),
-),
-title: Text(
-"즐겨찾기 경로 선택",
-style: TextStyle(
-color: Color(0xFF2D2D2D),
-fontWeight: FontWeight.bold,
-fontSize: 18,
-),
-),
-content: SizedBox(
-width: double.maxFinite,
-height: 300,
-child: ListView.builder(
-itemCount: favorites.length,
-  itemBuilder: (context, index) {
-    final fav = favorites[index];
-    final routeName = fav['route_name'];
-    final List<LatLng> route = (fav['route_path'] as List)
-        .map<LatLng>((pair) => LatLng((pair[0] as num).toDouble(), (pair[1] as num).toDouble()))
-        .toList();
+      if (favorites.isEmpty) {
+        DialogHelper.showMessage(context, "즐겨찾기된 경로가 없습니다.");
+        return;
+      }
 
-    final LatLng startPoint = route.first;
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFFF8F4EC),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text(
+              "즐겨찾기 경로 선택",
+              style: TextStyle(color: Color(0xFF2D2D2D), fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 300,
+              child: ListView.builder(
+                itemCount: favorites.length,
+                itemBuilder: (context, index) {
+                  final fav = favorites[index];
+                  final routeName = fav['route_name'];
+                  final List<LatLng> route = (fav['route_path'] as List)
+                      .map<LatLng>((pair) => LatLng((pair[0] as num).toDouble(), (pair[1] as num).toDouble()))
+                      .toList();
 
-    // 거리 계산
-    String distanceText = "거리 정보 없음";
-    if (_currentPosition != null) {
-      final distanceInMeters = Geolocator.distanceBetween(
-        _currentPosition!.latitude,
-        _currentPosition!.longitude,
-        startPoint.latitude,
-        startPoint.longitude,
-      );
-      distanceText = "거리: ${(distanceInMeters / 1000).toStringAsFixed(2)} km";
-    }
+                  final LatLng startPoint = route.first;
 
-    return FutureBuilder<String>(
-      future: getPlaceNameFromLatLng(startPoint.latitude, startPoint.longitude),
-      builder: (context, snapshot) {
-        final locationName = snapshot.data ?? "주소 변환 중...";
+                  String distanceText = "거리 정보 없음";
+                  if (_currentPosition != null) {
+                    final distanceInMeters = Geolocator.distanceBetween(
+                      _currentPosition!.latitude,
+                      _currentPosition!.longitude,
+                      startPoint.latitude,
+                      startPoint.longitude,
+                    );
+                    distanceText = "거리: ${(distanceInMeters / 1000).toStringAsFixed(2)} km";
+                  }
 
-        return Card(
-          margin: EdgeInsets.symmetric(vertical: 8),
-          color: Colors.white,
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: InkWell(
-            onTap: () {
-              setState(() {
-                _polylinePoints = [...route];
-                _currentRouteName = routeName;
-                _currentNickname = widget.userId;
-              });
-              _checkIfFavorited();
-              if (route.isNotEmpty) {
-                _mapController.move(route.first, 18.0);
-              }
-              Navigator.pop(context);
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Row(
-                children: [
-                  // 왼쪽 텍스트
-                  Expanded(
-                    flex: 2,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          routeName,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF2D2D2D),
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "주소: $locationName",
-                          style: TextStyle(color: Colors.grey[800], fontSize: 13),
-                        ),
-                        Text(
-                          distanceText,
-                          style: TextStyle(color: Colors.grey[800], fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(width: 12),
-                  // 오른쪽 지도 미리보기
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: SizedBox(
-                      width: 100,
-                      height: 80,
-                      child: FlutterMap(
-                        options: MapOptions(
-                          center: startPoint,
-                          zoom: 14,
-                          interactiveFlags: InteractiveFlag.none,
-                        ),
-                        children: [
-                          TileLayer(
-                            urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            subdomains: ['a', 'b', 'c'],
-                          ),
-                          MarkerLayer(
-                            markers: [
-                              Marker(
-                                width: 30,
-                                height: 30,
-                                point: startPoint,
-                                child: Icon(
-                                  Icons.location_on,
-                                  color: Color(0xFF3CAEA3),
-                                  size: 24,
+                  return FutureBuilder<String>(
+                    future: getPlaceNameFromLatLng(startPoint.latitude, startPoint.longitude),
+                    builder: (context, snapshot) {
+                      final locationName = snapshot.data ?? "주소 변환 중...";
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 8),
+                        color: Colors.white,
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: InkWell(
+                          onTap: () {
+                            setState(() {
+                              _polylinePoints = [...route];
+                              _currentRouteName = routeName;
+                              _currentNickname = widget.userId;
+                            });
+                            _checkIfFavorited();
+                            if (route.isNotEmpty) {
+                              _mapController.move(route.first, 18.0);
+                            }
+                            Navigator.pop(context);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(routeName,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold, color: Color(0xFF2D2D2D))),
+                                      const SizedBox(height: 4),
+                                      Text("주소: $locationName",
+                                          style: TextStyle(color: Colors.grey[800], fontSize: 13)),
+                                      Text(distanceText,
+                                          style: TextStyle(color: Colors.grey[800], fontSize: 13)),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 12),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SizedBox(
+                                    width: 100,
+                                    height: 80,
+                                    child: FlutterMap(
+                                      options: MapOptions(
+                                        center: startPoint,
+                                        zoom: 14,
+                                        interactiveFlags: InteractiveFlag.none,
+                                      ),
+                                      children: [
+                                        TileLayer(
+                                          urlTemplate:
+                                          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                          subdomains: const ['a', 'b', 'c'],
+                                        ),
+                                        MarkerLayer(
+                                          markers: [
+                                            Marker(
+                                              width: 30,
+                                              height: 30,
+                                              point: startPoint,
+                                              child: const Icon(Icons.location_on,
+                                                  color: Color(0xFF3CAEA3), size: 24),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
             ),
-          ),
-        );
-      },
-    );
-  },
-),
-),
-);
-}
-
-);
-} else {
-DialogHelper.showMessage(context, "서버 오류: ${response.statusCode}");
-}
-} catch (e) {
-DialogHelper.showMessage(context, "네트워크 오류: $e");
-}
+          );
+        },
+      );
+    } else {
+      DialogHelper.showMessage(context, "서버 오류: ${response.statusCode}");
+    }
+  } catch (e) {
+    DialogHelper.showMessage(context, "네트워크 오류: $e");
+  }
 }
 
 Future<void> _getCurrentLocation() async {
@@ -802,7 +753,7 @@ child: Text("설정으로 이동"),
 Future<void> _checkIfFavorited() async {
 if (_polylinePoints.isEmpty) return;
 
-final uri = Uri.parse('http://13.209.19.58:5000/is_favorite');
+final uri = Uri.parse('http://15.164.164.156:5000/is_favorite');
 final body = {
 'user_id': widget.userId,
 'route_name': _currentRouteName ?? '즐겨찾기_${DateTime.now().millisecondsSinceEpoch}',
@@ -1004,7 +955,7 @@ style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
 
 if (routeName.isEmpty) return;
 
-final uri = Uri.parse('http://13.209.19.58:5000/add_favorite');
+final uri = Uri.parse('http://15.164.164.156:5000/add_favorite');
 final body = {
 'user_id': widget.userId,
 'route_name': routeName,
