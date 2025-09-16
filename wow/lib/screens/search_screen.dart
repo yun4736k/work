@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'searched_screen.dart'; // SearchedScreen 파일 경로에 맞게 수정하세요
 
 class SearchScreen extends StatefulWidget {
   @override
@@ -104,8 +105,14 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
           ] else
-            Expanded(child: Center(child: Text("필터를 선택해주세요", style: TextStyle(color: Colors.grey.shade600)))),
-
+            Expanded(
+              child: Center(
+                child: Text(
+                  "필터를 선택해주세요",
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16),
             child: SizedBox(
@@ -120,7 +127,10 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
                 onPressed: () {
                   print('선택된 태그: $selectedTags');
-                  // TODO: 검색 처리
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => SearchedScreen()),
+                  );
                 },
                 child: Text(
                   '검색하기',
