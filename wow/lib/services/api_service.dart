@@ -26,13 +26,13 @@ class ApiService {
   /// ======================== 아이디 중복 확인 ========================
   static Future<bool> checkDuplicateId({required String id}) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/check-id?id=$id'),
+      Uri.parse('$baseUrl/check-id?ID=$id'),
       headers: {"Content-Type": "application/json"},
     );
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return data["exists"] ?? false; // 서버에서 'exists' 키 사용
+      return data["exists"] ?? false;
     } else {
       throw Exception('ID 중복 확인 실패: ${response.statusCode}');
     }
@@ -47,7 +47,7 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return data["exists"] ?? false; // 서버에서 'exists' 키 사용
+      return data["exists"] ?? false;
     } else {
       throw Exception('닉네임 중복 확인 실패: ${response.statusCode}');
     }
@@ -154,18 +154,19 @@ class ApiService {
   /// ======================== 사용자 생성 경로 조회 ========================
   static Future<List<dynamic>> fetchUserRoutes({required String userId}) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/user_routes?user_id=$userId'),
+      Uri.parse('$baseUrl/all_user_routes'),
       headers: {"Content-Type": "application/json"},
     );
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['routes'] ?? [];
+      final List<dynamic> data = jsonDecode(response.body);
+      // 서버 전체 경로를 받아와서 클라이언트에서 userId 필터링
+      final userRoutes = data.where((route) => route['nickname'] == userId).toList();
+      return userRoutes;
     } else {
       throw Exception('사용자 경로 조회 실패: ${response.statusCode}');
     }
   }
-
 
   /// ======================== 즐겨찾기 경로 조회 ========================
   static Future<List<dynamic>> fetchFavorites({required String userId}) async {
@@ -181,5 +182,4 @@ class ApiService {
       throw Exception('즐겨찾기 조회 실패: ${response.statusCode}');
     }
   }
-
 }

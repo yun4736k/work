@@ -60,6 +60,10 @@ dev_dependencies:
 flutter:
   assets:
     - assets/alert_sound.mp3
+    - assets/canvus1.png
+    - assets/canvus2.png
+    - assets/canvus3.png
+    - assets/canvus4.png
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
