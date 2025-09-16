@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:geocoding/geocoding.dart';
-
-// LoginPage import
+import 'running_start.dart';
+import 'settings_screen.dart';
 import 'login_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wow/services/dialog_helper.dart';
+import 'package:geocoding/geocoding.dart';
+import 'searched_screen.dart';
+import 'package:intl/intl.dart';
+import '../services/api_service.dart';
 
 Future<String> getPlaceNameFromLatLng(double lat, double lng) async {
   try {
@@ -29,7 +31,7 @@ class HomeScreen extends StatefulWidget {
   final String userId;
   final String nickname;
 
-  const HomeScreen({Key? key, required this.userId, required this.nickname}) : super(key: key);
+  HomeScreen({required this.userId, required this.nickname});
 
   @override
   _HomeScreenState createState() => _HomeScreenState();
@@ -37,42 +39,74 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   Position? _currentPosition;
+  List<LatLng> _polylinePoints = [];
+  final MapController _mapController = MapController();
+
+  String? _currentRouteName;
+  String? _currentNickname;
+  bool _isFavorited = false;
+  List<String> _lastSelectedCategories = [];
+
+  // 날씨 관련 변수
+  bool _isLoadingWeather = true;
   double? _temperature;
   double? _humidity;
-  bool _isLoading = true;
-
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
     _initLocationAndWeather();
+    _loadSavedCategories();
   }
 
   Future<void> _initLocationAndWeather() async {
     await _getCurrentLocation();
-    await _fetchWeather();
+    if (_currentPosition != null) {
+      await _fetchWeather(); // ApiService 호출
+    }
     setState(() {
-      _isLoading = false;
+      _isLoadingWeather = false;
     });
   }
 
-  Future<void> _getCurrentLocation() async {
-    try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied ||
-            permission == LocationPermission.deniedForever) {
-          print("위치 권한 거부됨");
-          return;
-        }
-      }
+  Future<void> _saveSelectedCategories(List<String> categories) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('last_categories', categories);
+  }
 
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+  Future<void> _loadSavedCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList('last_categories');
+    if (saved != null && saved.isNotEmpty) {
+      setState(() {
+        _lastSelectedCategories = saved;
+      });
+    }
+  }
+
+  Future<void> _getCurrentLocation() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _showPermissionDialog("위치 서비스가 비활성화되어 있습니다. 설정에서 활성화하세요.");
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        _showPermissionDialog("위치 권한이 필요합니다.");
+        return;
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      _showPermissionDialog(
+          "위치 권한이 영구적으로 거부되었습니다. 설정에서 직접 변경해주세요.");
+      return;
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition();
       setState(() {
         _currentPosition = position;
       });
@@ -81,148 +115,205 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _showPermissionDialog(String message) {
+    showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text("위치 권한 필요"),
+          content: Text(message),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text("닫기")),
+            TextButton(
+                onPressed: () => Geolocator.openAppSettings(),
+                child: Text("설정으로 이동")),
+          ],
+        ));
+  }
+
+  // ApiService 이용한 날씨 불러오기
   Future<void> _fetchWeather() async {
     if (_currentPosition == null) return;
 
-    final lat = _currentPosition!.latitude;
-    final lon = _currentPosition!.longitude;
-
-    final url =
-        "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&hourly=temperature_2m,relative_humidity_2m";
-
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _temperature = data['hourly']['temperature_2m'][0].toDouble();
-          _humidity = data['hourly']['relative_humidity_2m'][0].toDouble();
-        });
-      } else {
-        print("날씨 정보 가져오기 실패: ${response.statusCode}");
-      }
+      final data = await ApiService.fetchWeather(
+        lat: _currentPosition!.latitude,
+        lon: _currentPosition!.longitude,
+      );
+
+      setState(() {
+        _temperature = data['current_weather']['temperature']?.toDouble();
+        _humidity = data['hourly']['relative_humidity_2m'] != null
+            ? (data['hourly']['relative_humidity_2m'][0] as num).toDouble()
+            : null;
+      });
     } catch (e) {
       print("날씨 정보 가져오기 실패: $e");
     }
   }
 
-  void _logout() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => LoginPage()), // const 제거
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      key: _scaffoldKey,
       appBar: AppBar(
-        title: const Text("메인 페이지"),
+        backgroundColor: Colors.black,
+        iconTheme: IconThemeData(color: Colors.white),
         leading: IconButton(
-          icon: const Icon(Icons.menu),
+          icon: Icon(Icons.settings),
           onPressed: () {
-            _scaffoldKey.currentState?.openDrawer();
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => SettingsScreen(
+                  userId: widget.userId,
+                  nickname: widget.nickname,
+                ),
+              ),
+            );
           },
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: Icon(Icons.search),
             onPressed: () {
-              // 검색 기능 추가 예정
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => SearchedScreen()),
+              );
             },
           ),
         ],
       ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(
-                color: Colors.blue,
-              ),
-              child: Text('메뉴', style: TextStyle(color: Colors.white, fontSize: 20)),
-            ),
-            const ListTile(title: Text("계정 정보")),
-            const ListTile(title: Text("즐겨찾기 목록")),
-            const ListTile(title: Text("경로 생성")),
-            const ListTile(title: Text("생성한 경로 목록")),
-            ListTile(
-              title: const Text("로그 아웃"),
-              onTap: _logout,
-            ),
-          ],
-        ),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: _currentPosition == null
+          ? Center(child: CircularProgressIndicator())
+          : Stack(
         children: [
-          Expanded(
-            child: FlutterMap(
-              options: MapOptions(
-                center: LatLng(
-                  _currentPosition?.latitude ?? 37.5665,
-                  _currentPosition?.longitude ?? 126.9780,
-                ),
-                zoom: 13.0,
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              center: LatLng(_currentPosition!.latitude,
+                  _currentPosition!.longitude),
+              zoom: 18.0,
+            ),
+            children: [
+              TileLayer(
+                  urlTemplate:
+                  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  subdomains: ['a', 'b', 'c']),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    width: 40,
+                    height: 40,
+                    point: LatLng(_currentPosition!.latitude,
+                        _currentPosition!.longitude),
+                    child: Icon(Icons.location_pin,
+                        color: Colors.red, size: 40),
+                  )
+                ],
               ),
-              children: [
-                TileLayer(
-                  urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                  subdomains: const ['a', 'b', 'c'],
+              if (_polylinePoints.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                        points: _polylinePoints,
+                        strokeWidth: 4.0,
+                        color: Color(0xFF577590)),
+                  ],
                 ),
-                if (_currentPosition != null)
-                  MarkerLayer(
-                    markers: [
-                      Marker(
-                        width: 40,
-                        height: 40,
-                        point: LatLng(
-                          _currentPosition!.latitude,
-                          _currentPosition!.longitude,
-                        ),
-                        child: const Icon(
-                          Icons.location_on,
-                          color: Colors.red,
-                          size: 40,
-                        ),
+            ],
+          ),
+          Positioned(
+            bottom: 16,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 6,
+                    offset: Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: _isLoadingWeather
+                  ? Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                      color: Color(0xFF3CAEA3)),
+                  SizedBox(width: 12),
+                  Text(
+                    "날씨 불러오는 중...",
+                    style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.w500),
+                  ),
+                ],
+              )
+                  : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.wb_sunny,
+                          color: Color(0xFFF76C5E), size: 28),
+                      SizedBox(width: 12),
+                      Text(
+                        "${_temperature != null ? _temperature!.toStringAsFixed(1) : '-'} °C",
+                        style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2D2D2D)),
+                      ),
+                      SizedBox(width: 24),
+                      Icon(Icons.opacity,
+                          color: Color(0xFF577590), size: 24),
+                      SizedBox(width: 6),
+                      Text(
+                        "${_humidity != null ? _humidity!.toStringAsFixed(1) : '-'} %",
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF2D2D2D)),
                       ),
                     ],
                   ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            color: Colors.grey[200],
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Column(
-                  children: const [
-                    Icon(Icons.wb_sunny, size: 30),
-                    Text("날씨"),
-                  ],
-                ),
-                Column(
-                  children: [
-                    Text(
-                        "온도: ${_temperature != null ? _temperature!.toStringAsFixed(1) : '-'} °C"),
-                    Text(
-                        "습도: ${_humidity != null ? _humidity!.toStringAsFixed(1) : '-'} %"),
-                  ],
-                ),
-                Column(
-                  children: const [
-                    Icon(Icons.access_time, size: 30),
-                    Text("시간별 예측"),
-                  ],
-                ),
-              ],
+                  SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment:
+                    MainAxisAlignment.spaceBetween,
+                    children: List.generate(6, (i) {
+                      final time = DateTime.now()
+                          .add(Duration(minutes: i * 30));
+                      return Column(
+                        children: [
+                          Text(DateFormat.Hm().format(time),
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black87)),
+                          SizedBox(height: 4),
+                          Icon(Icons.wb_cloudy,
+                              color: Colors.grey[600], size: 18),
+                          SizedBox(height: 4),
+                          Text(
+                            "${(_temperature ?? 0 + i).toStringAsFixed(0)}°",
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.black87),
+                          ),
+                        ],
+                      );
+                    }),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

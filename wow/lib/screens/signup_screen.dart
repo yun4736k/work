@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'privacy_policy_screen.dart';
 import '../services/api_service.dart';
 import 'home_screen.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:wow/services/dialog_helper.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -264,7 +262,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       return;
     }
     try {
-      final isDuplicate = await ApiService.checkDuplicateId(inputId);
+      final isDuplicate = await ApiService.checkDuplicateId(id: inputId); // ✅ named parameter
       if (isDuplicate) {
         DialogHelper.showMessage(context, '중복된 아이디입니다.');
         _isIdChecked = false;
@@ -285,24 +283,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
       return;
     }
     try {
-      final response = await http.get(
-        Uri.parse('http://15.164.164.156:5000/check-nickname?nickname=$nickname'),
-      );
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        if (result['exists']) {
-          DialogHelper.showMessage(context, '이미 사용 중인 닉네임입니다.');
-          _isNicknameChecked = false;
-        } else {
-          DialogHelper.showMessage(context, '사용 가능한 닉네임입니다.');
-          _isNicknameChecked = true;
-        }
-      } else {
-        DialogHelper.showMessage(context, '서버 오류: ${response.statusCode}');
+      final isDuplicate = await ApiService.checkDuplicateNickname(nickname: nickname); // ✅ named parameter
+      if (isDuplicate) {
+        DialogHelper.showMessage(context, '이미 사용 중인 닉네임입니다.');
         _isNicknameChecked = false;
+      } else {
+        DialogHelper.showMessage(context, '사용 가능한 닉네임입니다.');
+        _isNicknameChecked = true;
       }
     } catch (e) {
-      DialogHelper.showMessage(context, '네트워크 오류: $e');
+      DialogHelper.showMessage(context, '서버 오류: $e');
       _isNicknameChecked = false;
     }
   }
@@ -313,7 +303,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final passwordRegex = RegExp(
         r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#\$%^&*(),.?":{}|<>])[A-Za-z\d!@#\$%^&*(),.?":{}|<>]{8,}$'
     );
-
 
     if (!passwordRegex.hasMatch(pw)) {
       DialogHelper.showMessage(context, '비밀번호는 영문, 숫자, 특수문자를 포함한 8자 이상이어야 합니다.');
@@ -354,40 +343,34 @@ class _SignUpScreenState extends State<SignUpScreen> {
     }
 
     try {
-      final result = await ApiService.register(id, pw, name, sex);
+      final result = await ApiService.register(
+        id: id, // ✅ named parameter
+        pw: pw,
+        name: name,
+        sex: sex,
+      );
       DialogHelper.showMessage(context, result);
 
       if (result.contains("성공") || result.contains("완료")) {
-        final loginUrl = Uri.parse('http://15.164.164.156:5000/login');
-        final loginResponse = await http.post(
-          loginUrl,
-          body: json.encode({'ID': id, 'PW': pw}),
-          headers: {'Content-Type': 'application/json'},
+        // 회원가입 후 자동 로그인
+        final loginResponse = await ApiService.login(
+          id: id, // ✅ named parameter
+          pw: pw,
         );
 
-        if (loginResponse.statusCode == 200) {
-          final responseData = json.decode(loginResponse.body);
-          final status = responseData['status'];
-          final message = responseData['message'].toString().trim();
-          final nicknameFromServer = responseData['nickname'];
+        final message = loginResponse['message'].toString().trim();
+        final nicknameFromServer = loginResponse['nickname'] ?? name;
 
-          if (status == 'success') {
-            DialogHelper.showMessage(context, message);
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => HomeScreen(
-                  userId: id,
-                  nickname: nicknameFromServer ?? name,
-                ),
-              ),
-            );
-          } else {
-            DialogHelper.showMessage(context, '자동 로그인 실패: $message');
-          }
-        } else {
-          DialogHelper.showMessage(context, '자동 로그인 서버 오류: ${loginResponse.statusCode}');
-        }
+        DialogHelper.showMessage(context, message);
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomeScreen(
+              userId: id,
+              nickname: nicknameFromServer,
+            ),
+          ),
+        );
       }
     } catch (e) {
       DialogHelper.showMessage(context, '서버 오류: $e');
