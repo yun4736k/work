@@ -1,24 +1,12 @@
 import 'package:flutter/material.dart';
 
-void main() => runApp(SearchApp());
-
-class SearchApp extends StatelessWidget {
+class SearchScreen extends StatefulWidget {
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: SearchPage(),
-      debugShowCheckedModeBanner: false,
-    );
-  }
+  _SearchScreenState createState() => _SearchScreenState();
 }
 
-class SearchPage extends StatefulWidget {
-  @override
-  _SearchPageState createState() => _SearchPageState();
-}
-
-class _SearchPageState extends State<SearchPage> {
-  String? activeDropdown; // '길 유형', '이동수단', '즐겨찾기'
+class _SearchScreenState extends State<SearchScreen> {
+  String? activeDropdown;
 
   final Map<String, List<String>> tagData = {
     '길 유형': ['포장도로', '비포장도로', '산길', '숲길', '해변', '강변', '도시', '시골', '언덕', '계단', '산책로', '기타'],
@@ -51,147 +39,126 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black87,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            children: [
-              // 상단 바
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () {},
-                  ),
-                  Text('현재 지역', style: TextStyle(color: Colors.white, fontSize: 16)),
-                ],
-              ),
-              SizedBox(height: 20),
-
-              // 드롭다운 3개
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: DropdownHeader(
-                      title: '길 유형',
-                      isActive: activeDropdown == '길 유형',
-                      onTap: () => toggleDropdown('길 유형'),
-                    ),
-                  ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: DropdownHeader(
-                      title: '이동수단',
-                      isActive: activeDropdown == '이동수단',
-                      onTap: () => toggleDropdown('이동수단'),
-                    ),
-                  ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: DropdownHeader(
-                      title: '즐겨찾기',
-                      isActive: activeDropdown == '즐겨찾기',
-                      onTap: () => toggleDropdown('즐겨찾기'),
-                    ),
-                  ),
-                ],
-              ),
-
-              // 드롭다운 활성화 시 태그 목록
-              if (activeDropdown != null)
-                Container(
-                  margin: EdgeInsets.only(top: 8),
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white),
-                  ),
+      backgroundColor: Color(0xFFF5F7FA),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: Colors.black87),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          '태그 검색',
+          style: TextStyle(
+            color: Colors.black87,
+            fontWeight: FontWeight.w600,
+            fontSize: 18,
+          ),
+        ),
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                buildDropdownButton('길 유형'),
+                SizedBox(width: 8),
+                buildDropdownButton('이동수단'),
+                SizedBox(width: 8),
+                buildDropdownButton('즐겨찾기'),
+              ],
+            ),
+          ),
+          if (activeDropdown != null) ...[
+            SizedBox(height: 12),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                margin: EdgeInsets.symmetric(horizontal: 16),
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+                ),
+                child: SingleChildScrollView(
                   child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: 10,
+                    runSpacing: 10,
                     children: tagData[activeDropdown!]!
                         .map(
-                          (tag) => GestureDetector(
-                        onTap: () => toggleTag(activeDropdown!, tag),
-                        child: Container(
-                          padding: EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.white),
-                            color: selectedTags[activeDropdown!]!.contains(tag)
-                                ? Colors.white
-                                : Colors.transparent,
-                          ),
-                          child: Text(
-                            tag,
-                            style: TextStyle(
-                              color: selectedTags[activeDropdown!]!.contains(tag)
-                                  ? Colors.black
-                                  : Colors.white,
-                            ),
-                          ),
-                        ),
+                          (tag) => FilterChip(
+                        label: Text(tag),
+                        selected: selectedTags[activeDropdown!]!.contains(tag),
+                        onSelected: (_) => toggleTag(activeDropdown!, tag),
+                        selectedColor: Colors.lightBlueAccent.shade100,
+                        checkmarkColor: Colors.white,
                       ),
                     )
                         .toList(),
                   ),
                 ),
+              ),
+            ),
+          ] else
+            Expanded(child: Center(child: Text("필터를 선택해주세요", style: TextStyle(color: Colors.grey.shade600)))),
 
-              Expanded(child: Container()),
-
-              // 검색 버튼
-              Container(
-                width: double.infinity,
-                height: 50,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16),
+            child: SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
-                child: TextButton(
-                  onPressed: () {
-                    print('선택된 태그: $selectedTags');
-                  },
-                  child: Text('검색', style: TextStyle(color: Colors.white)),
+                onPressed: () {
+                  print('선택된 태그: $selectedTags');
+                  // TODO: 검색 처리
+                },
+                child: Text(
+                  '검색하기',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
-}
 
-class DropdownHeader extends StatelessWidget {
-  final String title;
-  final bool isActive;
-  final VoidCallback onTap;
+  Widget buildDropdownButton(String title) {
+    final bool isActive = activeDropdown == title;
 
-  const DropdownHeader({
-    required this.title,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 45,
-        padding: EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.white),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(title, style: TextStyle(color: Colors.white)),
-            Icon(
-              Icons.arrow_drop_down,
-              color: Colors.white,
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => toggleDropdown(title),
+        child: Container(
+          height: 42,
+          decoration: BoxDecoration(
+            color: isActive ? Colors.blueAccent : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade400),
+            boxShadow: isActive
+                ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 4)]
+                : [],
+          ),
+          child: Center(
+            child: Text(
+              title,
+              style: TextStyle(
+                color: isActive ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );

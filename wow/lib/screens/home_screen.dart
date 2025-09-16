@@ -8,7 +8,7 @@ import 'login_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wow/services/dialog_helper.dart';
 import 'package:geocoding/geocoding.dart';
-import 'searched_screen.dart';
+import 'search_screen.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 
@@ -180,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => SearchedScreen()),
+                MaterialPageRoute(builder: (context) => SearchScreen()),
               );
             },
           ),
