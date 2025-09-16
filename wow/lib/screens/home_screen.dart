@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'running_start.dart';
 import 'settings_screen.dart';
 import 'login_screen.dart';
@@ -12,6 +10,7 @@ import 'package:wow/services/dialog_helper.dart';
 import 'package:geocoding/geocoding.dart';
 import 'searched_screen.dart';
 import 'package:intl/intl.dart';
+import '../services/api_service.dart';
 
 Future<String> getPlaceNameFromLatLng(double lat, double lng) async {
   try {
@@ -63,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initLocationAndWeather() async {
     await _getCurrentLocation();
     if (_currentPosition != null) {
-      await _fetchWeather();
+      await _fetchWeather(); // ApiService 호출
     }
     setState(() {
       _isLoadingWeather = false;
@@ -133,33 +132,27 @@ class _HomeScreenState extends State<HomeScreen> {
         ));
   }
 
+  // ApiService 이용한 날씨 불러오기
   Future<void> _fetchWeather() async {
     if (_currentPosition == null) return;
 
-    final lat = _currentPosition!.latitude;
-    final lon = _currentPosition!.longitude;
-
-    final url =
-        "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current_weather=true&hourly=temperature_2m,relative_humidity_2m";
-
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _temperature =
-              data['current_weather']['temperature']?.toDouble();
-          _humidity = data['hourly']['relative_humidity_2m'] != null
-              ? (data['hourly']['relative_humidity_2m'][0] as num).toDouble()
-              : null;
-        });
-      } else {
-        print("날씨 정보 가져오기 실패: ${response.statusCode}");
-      }
+      final data = await ApiService.fetchWeather(
+        lat: _currentPosition!.latitude,
+        lon: _currentPosition!.longitude,
+      );
+
+      setState(() {
+        _temperature = data['current_weather']['temperature']?.toDouble();
+        _humidity = data['hourly']['relative_humidity_2m'] != null
+            ? (data['hourly']['relative_humidity_2m'][0] as num).toDouble()
+            : null;
+      });
     } catch (e) {
       print("날씨 정보 가져오기 실패: $e");
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -216,8 +209,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     height: 40,
                     point: LatLng(_currentPosition!.latitude,
                         _currentPosition!.longitude),
-                    child:
-                    Icon(Icons.location_pin, color: Colors.red, size: 40),
+                    child: Icon(Icons.location_pin,
+                        color: Colors.red, size: 40),
                   )
                 ],
               ),
@@ -232,7 +225,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             ],
           ),
-          // ================== 개선된 날씨 UI ==================
           Positioned(
             bottom: 16,
             left: 16,
@@ -294,11 +286,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   SizedBox(height: 12),
-                  // 시간별 예측 예시
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment:
+                    MainAxisAlignment.spaceBetween,
                     children: List.generate(6, (i) {
-                      final time = DateTime.now().add(Duration(minutes: i * 30));
+                      final time = DateTime.now()
+                          .add(Duration(minutes: i * 30));
                       return Column(
                         children: [
                           Text(DateFormat.Hm().format(time),

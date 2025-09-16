@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'signup_screen.dart';
 import 'home_screen.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:wow/services/dialog_helper.dart';
+import '../services/api_service.dart'; // ✅ API 서비스 사용
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -32,37 +32,27 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  // ✅ ApiService로 로그인 처리
   Future<void> login(String username, String password) async {
-    final url = Uri.parse('http://15.164.164.156:5000/login');
-
     try {
-      final response = await http.post(
-        url,
-        body: json.encode({'ID': username, 'PW': password}),
-        headers: {'Content-Type': 'application/json'},
-      );
+      final responseData = await ApiService.login(id: username, pw: password); // 🔹 named parameter로 수정
 
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        final message = responseData['message'].toString().trim();
-        final nickname = responseData['nickname']?.toString() ?? 'TestAccount';
+      final message = responseData['message'].toString().trim();
+      final nickname = responseData['nickname']?.toString() ?? 'TestAccount';
 
-        if (message.contains('환영')) {
-          DialogHelper.showMessage(context, message);
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => HomeScreen(
-                userId: username,
-                nickname: nickname,
-              ),
+      if (message.contains('환영')) {
+        DialogHelper.showMessage(context, message);
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomeScreen(
+              userId: username,
+              nickname: nickname,
             ),
-          );
-        } else {
-          DialogHelper.showMessage(context, message);
-        }
+          ),
+        );
       } else {
-        DialogHelper.showMessage(context, '서버 오류: ${response.statusCode}');
+        DialogHelper.showMessage(context, message);
       }
     } catch (error) {
       DialogHelper.showMessage(context, '네트워크 오류: $error');
@@ -110,8 +100,6 @@ class _LoginPageState extends State<LoginPage> {
                   SizedBox(height: 12),
                   _buildTextField(_passwordController, '비밀번호', obscureText: true),
                   SizedBox(height: 24),
-
-                  // 👉 버튼 두 개 수평 정렬
                   Row(
                     children: [
                       Expanded(
@@ -167,7 +155,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ],
               ),
-
             ),
           ),
         ),

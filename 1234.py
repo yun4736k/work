@@ -6,7 +6,7 @@ import random
 import json
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@15.164.164.156/walkcanvas' 
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@13.124.173.123/walkcanvas' 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 

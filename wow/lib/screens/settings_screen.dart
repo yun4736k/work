@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
 import 'package:wow/services/dialog_helper.dart';
+import '../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final String userId;
@@ -18,7 +17,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  int _selectedIndex = 0; // 좌측 탭 선택 인덱스
+  int _selectedIndex = 0;
 
   TextEditingController nicknameController = TextEditingController();
   TextEditingController idController = TextEditingController();
@@ -34,10 +33,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String selectedCategory = '짧은 산책로';
 
   Position? _currentPosition;
-  List<LatLng> _polylinePoints = [];
-  String _currentRouteName = '';
-  String _currentNickname = '';
-
   bool _isAccountVerified = false;
   String gender = '2';
 
@@ -74,7 +69,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onDestinationSelected: (index) {
               setState(() => _selectedIndex = index);
               if (index == 4) {
-                // 로그아웃 탭 선택 시 다이얼로그 표시
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _showLogoutConfirmation();
                 });
@@ -95,10 +89,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           VerticalDivider(thickness: 1, width: 1),
-          Expanded(child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: _buildContent(),
-          )),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: _buildContent(),
+            ),
+          ),
         ],
       ),
     );
@@ -185,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ==================== 즐겨찾기 목록 ====================
   Widget _buildFavoriteRoutes() {
     return FutureBuilder<List<dynamic>>(
-      future: _fetchFavoriteRoutes(),
+      future: ApiService.fetchFavorites(userId: widget.userId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return Center(child: CircularProgressIndicator());
         if (!snapshot.hasData || snapshot.data!.isEmpty) return Center(child: Text("즐겨찾기된 경로가 없습니다."));
@@ -249,120 +245,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<List<dynamic>> _fetchFavoriteRoutes() async {
-    final url = Uri.parse('http://15.164.164.156:5000/all_favorites?user_id=${widget.userId}');
-    try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['favorites'] ?? [];
-      } else {
-        DialogHelper.showMessage(context, "서버 오류: ${response.statusCode}");
-        return [];
-      }
-    } catch (e) {
-      DialogHelper.showMessage(context, "네트워크 오류: $e");
-      return [];
-    }
-  }
-
-  // ==================== 경로 생성 ====================
-  Widget _buildRouteSettings() {
-    return Column(
-      children: [
-        Expanded(
-          flex: 5,
-          child: FlutterMap(
-            mapController: _routeMapController,
-            options: MapOptions(
-              initialCenter: LatLng(35.2171, 129.0190),
-              initialZoom: 19,
-              onTap: (tapPos, point) {
-                setState(() {
-                  _routeMarkers.add(point);
-                  _routeLinePoints.add(point);
-                });
-              },
-            ),
-            children: [
-              TileLayer(urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: ['a','b','c']),
-              MarkerLayer(
-                markers: _routeMarkers.map((point) => Marker(
-                  point: point,
-                  width: 40,
-                  height: 40,
-                  child: Icon(Icons.location_on, color: Color(0xFFF76C5E)),
-                )).toList(),
-              ),
-              if (_routeLinePoints.length >= 2)
-                PolylineLayer(
-                  polylines: [Polyline(points: _routeLinePoints, strokeWidth: 4, color: Color(0xFF577590))],
-                ),
-            ],
-          ),
-        ),
-        Expanded(
-          flex: 1,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton(
-                onPressed: () async {
-                  // 경로 생성 관련 다이얼로그 호출
-                },
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFF3CAEA3),
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
-                ),
-                child: Text('생성', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              SizedBox(width: 16),
-              ElevatedButton(
-                onPressed: () {
-                  if (_routeMarkers.isNotEmpty && _routeLinePoints.isNotEmpty) {
-                    setState(() {
-                      _routeMarkers.removeLast();
-                      _routeLinePoints.removeLast();
-                    });
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFF577590),
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
-                ),
-                child: Text('취소', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              SizedBox(width: 16),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _routeMarkers.clear();
-                    _routeLinePoints.clear();
-                  });
-                },
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFFF76C5E),
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
-                ),
-                child: Text('삭제', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ==================== 경로 목록 ====================
+  // ==================== 사용자 경로 목록 ====================
   Widget _buildUserRoutes() {
     return FutureBuilder<List<dynamic>>(
-      future: _fetchUserRoutes(),
+      future: ApiService.fetchUserRoutes(userId: widget.userId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return Center(child: CircularProgressIndicator());
         if (!snapshot.hasData || snapshot.data!.isEmpty) return Center(child: Text("생성한 경로가 없습니다."));
@@ -416,24 +302,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                     ),
-                    SizedBox(width: 12),
-                    Column(
-                      children: [
-                        ElevatedButton(
-                          onPressed: () {
-                            DialogHelper.showMessage(context, "수정 기능은 미구현입니다.");
-                          },
-                          child: Text("수정"),
-                        ),
-                        ElevatedButton(
-                          onPressed: () {
-                            DialogHelper.showMessage(context, "삭제 기능은 미구현입니다.");
-                          },
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                          child: Text("삭제"),
-                        ),
-                      ],
-                    )
                   ],
                 ),
               ),
@@ -444,24 +312,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<List<dynamic>> _fetchUserRoutes() async {
-    final url = Uri.parse('http://15.164.164.156:5000/user_routes?user_id=${widget.userId}');
-    try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['routes'] ?? [];
-      } else {
-        DialogHelper.showMessage(context, "서버 오류: ${response.statusCode}");
-        return [];
-      }
-    } catch (e) {
-      DialogHelper.showMessage(context, "네트워크 오류: $e");
-      return [];
-    }
-  }
-
-  // ==================== 로그아웃 확인 다이얼로그 ====================
+  // ==================== 로그아웃 다이얼로그 ====================
   void _showLogoutConfirmation() {
     showDialog(
       context: context,
@@ -476,7 +327,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(context); // 다이얼로그 닫기
+                Navigator.pop(context);
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -490,7 +341,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ==================== 비밀번호/닉네임/계정 삭제 ====================
+  // ==================== 비밀번호 변경 ====================
   Future<void> _changePassword() async {
     final id = idController.text.trim();
     final newPw = newPwController.text.trim();
@@ -505,22 +356,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    final uri = Uri.parse('http://15.164.164.156:5000/change');
-    final body = jsonEncode({
-      "ID": id,
-      "PW": pwController.text.trim(),
-      "NEW_PW": newPw,
-      "NAME": currentNickname,
-      "SEX": int.tryParse(gender) ?? 2
-    });
-
     try {
-      final response = await http.post(uri, headers: {"Content-Type":"application/json"}, body: body);
-      final data = jsonDecode(response.body);
-      DialogHelper.showMessage(context, data["message"]);
-      if (data["nickname"] != null) {
+      final result = await ApiService.changePassword(
+        id: id,
+        currentPw: pwController.text.trim(),
+        newPw: newPw,
+        nickname: currentNickname,
+        gender: int.tryParse(gender) ?? 2,
+      );
+
+      DialogHelper.showMessage(context, result["message"] ?? "비밀번호 변경 완료");
+
+      if (result["nickname"] != null) {
         setState(() {
-          currentNickname = data["nickname"];
+          currentNickname = result["nickname"];
           _isAccountVerified = true;
         });
       }
@@ -543,5 +392,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _deleteAccount() {
     DialogHelper.showMessage(context, "계정 삭제 기능은 추후 구현 예정");
+  }
+
+  // ==================== 경로 생성 ====================
+  Widget _buildRouteSettings() {
+    return Column(
+      children: [
+        Expanded(
+          flex: 5,
+          child: FlutterMap(
+            mapController: _routeMapController,
+            options: MapOptions(
+              initialCenter: LatLng(35.2171, 129.0190),
+              initialZoom: 19,
+              onTap: (tapPos, point) {
+                setState(() {
+                  _routeMarkers.add(point);
+                  _routeLinePoints.add(point);
+                });
+              },
+            ),
+            children: [
+              TileLayer(urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: ['a','b','c']),
+              MarkerLayer(
+                markers: _routeMarkers.map((point) => Marker(
+                  point: point,
+                  width: 40,
+                  height: 40,
+                  child: Icon(Icons.location_on, color: Color(0xFFF76C5E)),
+                )).toList(),
+              ),
+              if (_routeLinePoints.length >= 2)
+                PolylineLayer(
+                  polylines: [Polyline(points: _routeLinePoints, strokeWidth: 4, color: Color(0xFF577590))],
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          flex: 1,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton(
+                onPressed: () async {},
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF3CAEA3),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                ),
+                child: Text('생성', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: () {
+                  if (_routeMarkers.isNotEmpty && _routeLinePoints.isNotEmpty) {
+                    setState(() {
+                      _routeMarkers.removeLast();
+                      _routeLinePoints.removeLast();
+                    });
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF577590),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                ),
+                child: Text('취소', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _routeMarkers.clear();
+                    _routeLinePoints.clear();
+                  });
+                },
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFFF76C5E),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                ),
+                child: Text('삭제', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
