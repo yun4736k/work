@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:latlong2/latlong.dart';
 
 class ApiService {
-  static const String baseUrl = "http://13.124.173.123:5000"; // 서버 주소
+  static const String baseUrl = "http://13.125.177.95:5000"; // 서버 주소
 
   /// ======================== 로그인 ========================
   static Future<Map<String, dynamic>> login({
@@ -93,34 +92,6 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception("날씨 정보 가져오기 실패: ${response.statusCode}");
-    }
-  }
-
-  /// ======================== 산책 경로 저장 ========================
-  static Future<String> saveRoute({
-    required String userId,
-    required String routeName,
-    required List<LatLng> routePath,
-    required String category,
-  }) async {
-    final body = {
-      "user_id": userId,
-      "route_name": routeName,
-      "route_path": routePath.map((p) => [p.latitude, p.longitude]).toList(),
-      "category": category,
-    };
-
-    final response = await http.post(
-      Uri.parse('$baseUrl/add_route'),
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode(body),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['route_name'] ?? routeName;
-    } else {
-      throw Exception("경로 저장 실패: ${response.statusCode}");
     }
   }
 

@@ -6,7 +6,7 @@ import random
 import json
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@13.124.173.123/walkcanvas' 
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@13.125.177.95/walkcanvas' 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -23,6 +23,8 @@ class Route(db.Model):
     route_name = db.Column(db.String(120), nullable=False)
     route_path = db.Column(db.Text)
     category = db.Column(db.String(80))
+    like_count = db.Column(db.Integer, default=0)
+    favorite_count = db.Column(db.Integer, default=0)
 
 class Favorite(db.Model):
     __tablename__ = 'favorite'
@@ -46,7 +48,7 @@ def Login(ID, PW):
     user = User.query.filter_by(user_id=ID).first()
     if user and user.password == hash_password(PW):
         return {
-            "status": "success",  # ✅ 명시적 상태 값
+            "status": "success",
             "message": f"환영합니다, {user.nickname}",
             "nickname": user.nickname
         }
@@ -90,7 +92,6 @@ def register():
     print("📤 회원가입 처리 결과: ", result)
     return jsonify({"message": result})
 
-
 @app.route('/change', methods=['POST'])
 def change():
     data = request.json
@@ -114,19 +115,16 @@ def add_route():
     route_path = data.get("route_path")
     category = data.get("category")
 
-    # 필수 필드 검증
     if not all([user_id, route_name, route_path]):
         return jsonify({"message": "경로명, 좌표, 사용자 ID가 필요합니다."}), 400
 
-    # Route 테이블에 추가
     db.session.add(Route(
         user_id=user_id,
         route_name=route_name,
         route_path=json.dumps(route_path),
-   category=category
+        category=category
     ))
 
-    # RecentRoute 테이블은 user_id마다 1개만 유지
     recent = RecentRoute.query.filter_by(user_id=user_id).first()
     if recent:
         recent.route_name = route_name
@@ -137,7 +135,7 @@ def add_route():
             user_id=user_id,
             route_name=route_name,
             route_path=json.dumps(route_path),
-       category=category
+            category=category
         ))
 
     db.session.commit()
@@ -145,7 +143,6 @@ def add_route():
         "message": "경로가 등록되었습니다.",
         "route_name": route_name
     })
-
 
 @app.route('/recent_route', methods=['GET'])
 def recent_route():
@@ -169,12 +166,13 @@ def get_routes():
                 "user_id": r.user_id,
                 "route_name": r.route_name,
                 "route_path": json.loads(r.route_path),
-                "category": r.category
+                "category": r.category,
+                "like_count": r.like_count,
+                "favorite_count": r.favorite_count
             }
             for r in routes
         ]
     })
-
 
 @app.route('/random_user_route', methods=['GET'])
 def random_user_route():
@@ -196,7 +194,6 @@ def random_user_route():
 
         matched_routes = []
         for route in Route.query.all():
-            # ✅ 여기를 이렇게 수정
             try:
                 route_categories = json.loads(route.category)
                 if isinstance(route_categories, str):
@@ -224,19 +221,28 @@ def add_favorite():
     user_id = data.get("user_id")
     route_name = data.get("route_name")
     route_path = data.get("route_path")
-    category = data.get("category")  # ✅ 추가
+    category = data.get("category")
+
+    if not all([user_id, route_name, route_path]):
+        return jsonify({"message": "user_id, route_name, route_path 는 필수입니다."}), 400
 
     existing = Favorite.query.filter_by(user_id=user_id, route_name=route_name).first()
     if existing:
         existing.route_path = json.dumps(route_path)
-        existing.category = category  # ✅ 추가
+        existing.category = category
     else:
         db.session.add(Favorite(
             user_id=user_id,
             route_name=route_name,
             route_path=json.dumps(route_path),
-            category=category  # ✅ 추가
+            category=category
         ))
+
+        # Route 테이블에서 favorite_count 증가
+        route = Route.query.filter_by(user_id=user_id, route_name=route_name).first()
+        if route:
+            route.favorite_count = (route.favorite_count or 0) + 1
+
     db.session.commit()
     return jsonify({"message": "즐겨찾기 경로가 추가 또는 갱신되었습니다."})
 
@@ -356,24 +362,65 @@ def all_user_routes():
         result.append({
             "route_name": r.route_name,
             "nickname": user.nickname if user else r.user_id,
-            "route_path": json.loads(r.route_path)
+            "route_path": json.loads(r.route_path),
+            "like_count": r.like_count,
+            "favorite_count": r.favorite_count
         })
 
     return jsonify(result)
 
+
+# ======================= 새로 추가된 검색 API =======================
+@app.route('/search_routes', methods=['POST'])
+def search_routes():
+    data = request.get_json()
+    categories = data.get('categories')  # 리스트 형태로 기대
+
+    if not categories:
+        return jsonify({"message": "카테고리가 제공되지 않았습니다."}), 400
+
+    routes = []
+    all_routes = Route.query.all()
+
+    for route in all_routes:
+        try:
+            route_categories = json.loads(route.category)
+            if isinstance(route_categories, str):
+                route_categories = [route_categories]
+        except:
+            route_categories = [route.category]
+
+        if any(cat in route_categories for cat in categories):
+            routes.append(route)
+
+    if not routes:
+        return jsonify({"message": "조건에 맞는 경로가 없습니다."}), 404
+
+    result = []
+    for r in routes:
+        user = User.query.filter_by(user_id=r.user_id).first()
+        result.append({
+            "route_name": r.route_name,
+            "nickname": user.nickname if user else r.user_id,
+            "route_path": json.loads(r.route_path),
+            "like_count": r.like_count,
+            "favorite_count": r.favorite_count
+        })
+
+    return jsonify({"routes": result})
+
+# ====================================================================
 
 if __name__ == '__main__':
     import os
     print("📁 현재 실행 디렉토리:", os.getcwd())
     print("📂 mydb.db 절대경로:", os.path.abspath("mydb.db"))
 
-    # DB 테이블 생성
     with app.app_context():
         print("📌 db.create_all() 실행 시도 중...")
         db.create_all()
         print("✅ db.create_all() 완료됨")
 
-        # ✅ 확인 로그: 생성된 테이블 목록 출력
         inspector = db.inspect(db.engine)
         print("📋 생성된 테이블 목록:", inspector.get_table_names())
 
