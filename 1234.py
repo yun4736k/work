@@ -6,7 +6,7 @@ import random
 import json
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@13.125.177.95/walkcanvas' 
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@15.164.104.58/walkcanvas' 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -109,48 +109,73 @@ def login():
 
 @app.route('/add_route', methods=['POST'])
 def add_route():
-    data = request.get_json()
-    user_id = data.get("user_id")
-    route_name = data.get("route_name")
-    route_path = data.get("route_path")
-    category = data.get("category")
+    # 1. 클라이언트로부터 JSON 데이터 수신
+    try:
+        data = request.get_json()
+        user_id = data.get("user_id")
+        route_name = data.get("route_name")
+        route_path = data.get("route_path")
+        category = data.get("category")
+    except Exception as e:
+        # JSON 형식이 잘못된 경우
+        return jsonify({"message": f"잘못된 JSON 형식입니다. ({str(e)})"}), 400
 
+    # 2. 필수 데이터 유효성 검사
     if not all([user_id, route_name, route_path]):
-        return jsonify({"message": "경로명, 좌표, 사용자 ID가 필요합니다."}), 400
+        return jsonify({"message": "경로명, 좌표, 사용자 ID는 필수입니다."}), 400
 
     try:
+        # 3. 데이터베이스에 경로 저장
+        # route_path가 유효한 리스트인지 확인하고 JSON으로 변환
+        if not isinstance(route_path, list):
+            raise TypeError("route_path는 리스트 형태여야 합니다.")
+        
+        json_route_path = json.dumps(route_path)
+
+        # Route 테이블에 새 경로 추가
         db.session.add(Route(
             user_id=user_id,
             route_name=route_name,
-            route_path=json.dumps(route_path),
+            route_path=json_route_path,
             category=category
         ))
-        
-        # RecentRoute 업데이트 로직...
+
+        # 4. RecentRoute 테이블 업데이트
         recent = RecentRoute.query.filter_by(user_id=user_id).first()
         if recent:
             recent.route_name = route_name
-            recent.route_path = json.dumps(route_path)
+            recent.route_path = json_route_path
             recent.category = category
         else:
             db.session.add(RecentRoute(
                 user_id=user_id,
                 route_name=route_name,
-                route_path=json.dumps(route_path),
+                route_path=json_route_path,
                 category=category
             ))
 
+        # 5. 모든 변경사항 커밋
         db.session.commit()
         return jsonify({
             "message": "경로가 성공적으로 등록되었습니다.",
             "route_name": route_name
         }), 200
 
-    except Exception as e:
-        db.session.rollback()  # 오류 시 DB 상태 복구
+    except TypeError as e:
+        # `route_path` 데이터 형식 오류 처리
+        db.session.rollback()
         return jsonify({
-            "message": f"서버 오류: 경로 저장에 실패했습니다. (오류 내용: {str(e)})"
+            "message": f"경로 저장 실패: 데이터 형식 오류. ({str(e)})"
+        }), 400
+
+    except Exception as e:
+        # 기타 예상치 못한 서버 오류 처리 (DB 연결, 기타)
+        db.session.rollback()
+        print(f"경로 저장 중 심각한 서버 오류 발생: {e}")
+        return jsonify({
+            "message": f"경로 저장 실패: 서버 내부 오류. ({str(e)})"
         }), 500
+    
 @app.route('/recent_route', methods=['GET'])
 def recent_route():
     user_id = request.args.get('user_id')
