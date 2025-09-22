@@ -6,7 +6,7 @@ import random
 import json
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@13.124.173.123/walkcanvas' 
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@13.125.177.95/walkcanvas' 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -118,32 +118,39 @@ def add_route():
     if not all([user_id, route_name, route_path]):
         return jsonify({"message": "경로명, 좌표, 사용자 ID가 필요합니다."}), 400
 
-    db.session.add(Route(
-        user_id=user_id,
-        route_name=route_name,
-        route_path=json.dumps(route_path),
-        category=category
-    ))
-
-    recent = RecentRoute.query.filter_by(user_id=user_id).first()
-    if recent:
-        recent.route_name = route_name
-        recent.route_path = json.dumps(route_path)
-        recent.category = category
-    else:
-        db.session.add(RecentRoute(
+    try:
+        db.session.add(Route(
             user_id=user_id,
             route_name=route_name,
             route_path=json.dumps(route_path),
             category=category
         ))
+        
+        # RecentRoute 업데이트 로직...
+        recent = RecentRoute.query.filter_by(user_id=user_id).first()
+        if recent:
+            recent.route_name = route_name
+            recent.route_path = json.dumps(route_path)
+            recent.category = category
+        else:
+            db.session.add(RecentRoute(
+                user_id=user_id,
+                route_name=route_name,
+                route_path=json.dumps(route_path),
+                category=category
+            ))
 
-    db.session.commit()
-    return jsonify({
-        "message": "경로가 등록되었습니다.",
-        "route_name": route_name
-    })
+        db.session.commit()
+        return jsonify({
+            "message": "경로가 성공적으로 등록되었습니다.",
+            "route_name": route_name
+        }), 200
 
+    except Exception as e:
+        db.session.rollback()  # 오류 시 DB 상태 복구
+        return jsonify({
+            "message": f"서버 오류: 경로 저장에 실패했습니다. (오류 내용: {str(e)})"
+        }), 500
 @app.route('/recent_route', methods=['GET'])
 def recent_route():
     user_id = request.args.get('user_id')
