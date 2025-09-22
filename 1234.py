@@ -291,37 +291,41 @@ def random_user_route():
         "route_path": json.loads(route.route_path)
     })
 
-@app.route('/add_favorite', methods=['POST'])
-def add_favorite():
+@app.route('/toggle_favorite', methods=['POST'])
+def toggle_favorite():
     data = request.get_json()
     user_id = data.get("user_id")
-    route_name = data.get("route_name")
-    route_path = data.get("route_path")
-    category = data.get("category")
+    route_id = data.get("route_id")
 
-    if not all([user_id, route_name, route_path]):
-        return jsonify({"message": "user_id, route_name, route_path 는 필수입니다."}), 400
+    if not all([user_id, route_id]):
+        return jsonify({"message": "user_id와 route_id는 필수입니다."}), 400
 
-    existing = Favorite.query.filter_by(user_id=user_id, route_name=route_name).first()
-    if existing:
-        existing.route_path = json.dumps(route_path)
-        existing.category = category
+    favorite = Favorite.query.filter_by(user_id=user_id, route_id=route_id).first()
+    route = Route.query.get(route_id)
+
+    if not route:
+        return jsonify({"message": "경로를 찾을 수 없습니다."}), 404
+
+    if favorite:
+        # 이미 즐겨찾기에 있다면 삭제 (즐겨찾기 해제)
+        db.session.delete(favorite)
+        route.favorite_count = max(0, (route.favorite_count or 1) - 1)
+        db.session.commit()
+        return jsonify({"message": "즐겨찾기가 취소되었습니다.", "is_favorite": False})
     else:
-        db.session.add(Favorite(
+        # 즐겨찾기에 없다면 추가 (즐겨찾기 설정)
+        new_fav = Favorite(
             user_id=user_id,
-            route_name=route_name,
-            route_path=json.dumps(route_path),
-            category=category
-        ))
-
-        # Route 테이블에서 favorite_count 증가
-        route = Route.query.filter_by(user_id=user_id, route_name=route_name).first()
-        if route:
-            route.favorite_count = (route.favorite_count or 0) + 1
-
-    db.session.commit()
-    return jsonify({"message": "즐겨찾기 경로가 추가 또는 갱신되었습니다."})
-
+            route_id=route.id,
+            route_name=route.route_name,
+            route_path=route.route_path,
+            category=route.category
+        )
+        db.session.add(new_fav)
+        route.favorite_count = (route.favorite_count or 0) + 1
+        db.session.commit()
+        return jsonify({"message": "즐겨찾기에 추가되었습니다.", "is_favorite": True})
+    
 @app.route('/favorites', methods=['GET'])
 def get_favorites():
     user_id = request.args.get("user_id")
