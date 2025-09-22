@@ -24,7 +24,7 @@ class _SearchedScreenState extends State<SearchedScreen> {
   }
 
   Future<void> fetchRoutesFromServer() async {
-    final url = Uri.parse('http://서버주소:포트/search'); // 실제 서버 주소로 변경하세요
+    final url = Uri.parse('http://15.164.104.58:5000/search'); // 실제 서버 주소로 변경하세요
     try {
       final response = await http.post(
         url,
@@ -158,7 +158,7 @@ class _SearchedScreenState extends State<SearchedScreen> {
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
-                        child: const Text('선택'),
+                        child: const Text('산책'),
                       ),
                     ],
                   ),

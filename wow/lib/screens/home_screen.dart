@@ -153,7 +153,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -174,22 +173,12 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.search),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => SearchScreen()),
-              );
-            },
-          ),
-        ],
       ),
       body: _currentPosition == null
           ? Center(child: CircularProgressIndicator())
           : Stack(
         children: [
+          // 지도
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -225,8 +214,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             ],
           ),
+
+          // 상단 날씨 바
           Positioned(
-            bottom: 16,
+            top: 16,
             left: 16,
             right: 16,
             child: Container(
@@ -286,34 +277,95 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment:
-                    MainAxisAlignment.spaceBetween,
-                    children: List.generate(6, (i) {
-                      final time = DateTime.now()
-                          .add(Duration(minutes: i * 30));
-                      return Column(
-                        children: [
-                          Text(DateFormat.Hm().format(time),
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black87)),
-                          SizedBox(height: 4),
-                          Icon(Icons.wb_cloudy,
-                              color: Colors.grey[600], size: 18),
-                          SizedBox(height: 4),
-                          Text(
-                            "${(_temperature ?? 0 + i).toStringAsFixed(0)}°",
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.black87),
+                  // 가로 스크롤: 12시간 날씨
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: List.generate(12, (i) {
+                        final time = DateTime.now()
+                            .add(Duration(hours: i));
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Column(
+                            children: [
+                              Text(DateFormat.Hm().format(time),
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black87)),
+                              SizedBox(height: 4),
+                              Icon(Icons.wb_cloudy,
+                                  color: Colors.grey[600], size: 18),
+                              SizedBox(height: 4),
+                              Text(
+                                "${((_temperature ?? 0) + i).toStringAsFixed(0)}°",
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black87),
+                              ),
+                            ],
                           ),
-                        ],
-                      );
-                    }),
+                        );
+                      }),
+                    ),
                   ),
                 ],
               ),
+            ),
+          ),
+
+          // 하단 버튼 2개
+          Positioned(
+            bottom: 16,
+            left: 16,
+            right: 16,
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => SearchScreen()),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: Text("검색",
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white)),
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => RunningStartScreen()),
+                    );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: Text("산책 시작",
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white)),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
