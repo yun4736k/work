@@ -30,9 +30,11 @@ class Favorite(db.Model):
     __tablename__ = 'favorite'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(80), nullable=False)
+    
     route_name = db.Column(db.String(120), nullable=False)
     route_path = db.Column(db.Text)
     category = db.Column(db.String(80))
+    route_id = db.Column(db.Integer, nullable=False)
 
 class RecentRoute(db.Model):
     id = db.Column(db.Integer, primary_key=True)
