@@ -349,9 +349,13 @@ def get_favorites():
     return jsonify({
         "favorites": [
             {
+                 # ✨ 핵심 수정: route_id를 추가하여 클라이언트에 보냅니다.
+                "id": f.route_id, 
                 "route_name": f.route_name,
                 "route_path": json.loads(f.route_path),
-                "category": f.category
+                "category": f.category,
+                # ✨ 즐겨찾기 목록이므로 항상 True로 설정합니다.
+                "is_favorite": True 
             }
             for f in favs
         ]
