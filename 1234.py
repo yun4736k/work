@@ -123,8 +123,12 @@ def add_route():
     # 2. 필수 데이터 유효성 검사
     if not all([user_id, route_name, route_path]):
         return jsonify({"message": "경로명, 좌표, 사용자 ID는 필수입니다."}), 400
+    
+    
 
     try:
+        print(f"📥 수신된 route_path 데이터 타입: {type(route_path)}")
+        print(f"📥 수신된 route_path 데이터: {route_path}")
         # 3. 데이터베이스에 경로 저장
         # route_path가 유효한 리스트인지 확인하고 JSON으로 변환
         if not isinstance(route_path, list):
@@ -175,7 +179,7 @@ def add_route():
         return jsonify({
             "message": f"경로 저장 실패: 서버 내부 오류. ({str(e)})"
         }), 500
-    
+
 @app.route('/recent_route', methods=['GET'])
 def recent_route():
     user_id = request.args.get('user_id')
