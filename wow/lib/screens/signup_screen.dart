@@ -32,7 +32,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   static const _bgMint = Color(0xFFA8D5BA);
 
   // SegmentedButton용 값
-  static const _genders = <String>{"남성", "여성", "비공개"};
+  static const _genders = <String>{"남성", "여성", "선택 안함"};
 
   @override
   Widget build(BuildContext context) {

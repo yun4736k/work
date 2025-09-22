@@ -35,7 +35,7 @@ class _RunningStartScreenState extends State<RunningStartScreen>
   // ========== 상수 정의 ==========
   static const double _caloriesPerMinute = 4.0;
   static const double _stepsPerMeter = 1.33; // 0.75m당 1걸음 → 1m당 1.33걸음
-  static const int _locationUpdateInterval = 2; // 2초로 변경 (배터리 최적화)
+  static const int _locationUpdateInterval = 1; // 2초로 변경 (배터리 최적화)
   static const List<String> _routeCategories = [
     "짧은 산책로",
     "긴 산책로",
@@ -303,7 +303,7 @@ class _RunningStartScreenState extends State<RunningStartScreen>
 
     try {
       final response = await http.post(
-        Uri.parse('http://13.125.177.95:5000/add_route'),
+        Uri.parse('http://15.164.104.58:5000/add_route'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
       ).timeout(const Duration(seconds: 10));
@@ -517,11 +517,11 @@ class _RunningStartScreenState extends State<RunningStartScreen>
       child: Column(
         children: [
           Expanded(
-            flex: 65,
+            flex: 63,
             child: _buildMap(),
           ),
           Expanded(
-            flex: 35,
+            flex: 37,
             child: _buildBottomPanel(),
           ),
         ],
@@ -802,17 +802,24 @@ class _RunningStartScreenState extends State<RunningStartScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Flexible(
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1A1A1A),
-                    fontFeatures: [FontFeature.tabularFigures()],
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.bottomLeft,
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1A1A1A),
+                      fontFeatures: [FontFeature.tabularFigures()],
+                      height: 1.0, // 줄간격도 꽉 맞게
+                    ),
                   ),
                 ),
               ),
+
               if (unit.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 Padding(
@@ -1163,7 +1170,7 @@ class _CompletionDialog extends StatelessWidget {
           children: [
             // 헤더
             Container(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(20),
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFF00BCD4), Color(0xFF4CAF50)],

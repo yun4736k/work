@@ -345,9 +345,45 @@ color: Colors.white)),
 SizedBox(width: 12),
 Expanded(
 child: ElevatedButton(
-onPressed: () {
-// TODO: 산책 시작 기능 구현 예정
-},
+  onPressed: () async {
+    if (_currentPosition == null) return;
+
+    // 1) 경로 이름: 역지오코딩 시도 → 실패 시 기본값
+    String routeName;
+    try {
+      routeName = await getPlaceNameFromLatLng(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+      );
+      if (routeName.isEmpty ||
+          routeName == "주소 변환 실패" ||
+          routeName == "위치 정보 없음") {
+        routeName = '산책 ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}';
+      }
+    } catch (_) {
+      routeName = '산책 ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}';
+    }
+
+    // 2) 폴리라인: 비어 있으면 현재 위치 한 점으로 보장
+    final List<LatLng> defaultPolyline = _polylinePoints.isNotEmpty
+        ? _polylinePoints
+        : [LatLng(_currentPosition!.latitude, _currentPosition!.longitude)];
+
+    // 3) 러닝 화면으로 이동 (알람 간격은 예시로 30초)
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => RunningStartScreen(
+          userId: widget.userId,
+          routeName: routeName,
+          polylinePoints: defaultPolyline,
+          intervalMinutes: 0,
+          intervalSeconds: 30,
+        ),
+      ),
+    );
+  },
+
 style: ElevatedButton.styleFrom(
 backgroundColor: Colors.green,
 padding: EdgeInsets.symmetric(vertical: 14),

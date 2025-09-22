@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import '../services/api_service.dart';
+import 'dart:convert';
 import 'searched_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -12,17 +15,11 @@ class _SearchScreenState extends State<SearchScreen> {
   String? activeDropdown;
   bool onlyFavorites = false;
 
-  /// 단일 단계 태그
   final Map<String, List<String>> tagData = {
-    '길 유형': [
-      '포장도로', '비포장도로', '산길', '숲길', '해변', '강변', '도시', '시골', '언덕', '계단', '산책로', '기타'
-    ],
-    '이동수단': [
-      '걷기', '뜀걸음', '자전거', '휠체어', '유모차',
-    ],
+    '길 유형': ['포장도로', '비포장도로', '등산로', '짧은 산책로', '긴 산책로', '운동용 산책로'],
+    '이동수단': ['걷기', '뜀걸음', '자전거', '휠체어', '유모차'],
   };
 
-  /// 지역(부산): 구 → 동
   final List<String> _busanGus = const [
     '중구','서구','동구','영도구','부산진구','동래구','남구','북구',
     '해운대구','사하구','금정구','강서구','연제구','수영구','사상구','기장군',
@@ -47,18 +44,22 @@ class _SearchScreenState extends State<SearchScreen> {
     '기장군': ['기장읍','정관읍','일광읍','철마면','장안읍'],
   };
 
-  /// 선택된 태그들
   final Map<String, Set<String>> selectedTags = {
-    '지역': {},      // "구/동" 포맷
+    '지역': {},
     '길 유형': {},
     '이동수단': {},
   };
 
-  String? _currentGu; // 지역 드롭다운에서 현재 선택한 구
+  String? _currentGu;
 
   void toggleDropdown(String name) {
     setState(() {
-      activeDropdown = (activeDropdown == name) ? null : name;
+      if (activeDropdown == name) {
+        activeDropdown = null;
+      } else {
+        activeDropdown = name;
+        if (name != '지역') _currentGu = null;
+      }
     });
   }
 
@@ -73,15 +74,12 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void toggleRegion(String gu, String dong) {
-    final key = '$gu/$dong';
-    toggleTag('지역', key);
+    toggleTag('지역', '$gu/$dong');
   }
 
   void resetSelection() {
     setState(() {
-      for (final key in selectedTags.keys) {
-        selectedTags[key]!.clear();
-      }
+      for (final key in selectedTags.keys) selectedTags[key]!.clear();
       onlyFavorites = false;
       activeDropdown = null;
       _currentGu = null;
@@ -97,30 +95,28 @@ class _SearchScreenState extends State<SearchScreen> {
 
   List<Widget> buildSelectedTagChips() {
     final List<Widget> chips = [];
-    final sortedCategories = selectedTags.keys.toList()..sort((a, b) => b.compareTo(a));
+    final sortedCategories = selectedTags.keys.toList()..sort();
     for (final category in sortedCategories) {
       final tags = selectedTags[category]!.toList()..sort();
       for (final tag in tags) {
         final label = category == '지역' ? tag.replaceAll('/', ' - ') : tag;
-        chips.add(
-          FilterChip(
-            label: Text(label),
-            selected: true,
-            onSelected: (_) {
-              if (category == '지역' && tag.contains('/')) {
-                final sp = tag.split('/');
-                toggleRegion(sp[0], sp[1]);
-              } else {
-                toggleTag(category, tag);
-              }
-            },
-            backgroundColor: Colors.grey.shade100,
-            selectedColor: Colors.lightBlueAccent.shade100,
-            showCheckmark: false,
-            labelStyle: const TextStyle(fontSize: 14),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          ),
-        );
+        chips.add(FilterChip(
+          label: Text(label),
+          selected: true,
+          onSelected: (_) {
+            if (category == '지역' && tag.contains('/')) {
+              final sp = tag.split('/');
+              toggleRegion(sp[0], sp[1]);
+            } else {
+              toggleTag(category, tag);
+            }
+          },
+          backgroundColor: Colors.grey.shade100,
+          selectedColor: Colors.lightBlueAccent.shade100,
+          showCheckmark: false,
+          labelStyle: const TextStyle(fontSize: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        ));
       }
     }
     return chips;
@@ -150,16 +146,14 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ],
         ),
-        centerTitle: false,
       ),
       body: Column(
         children: [
-          // 상단 카테고리 영역
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
             child: Row(
               children: [
-                buildDropdownButton('지역'),       // ← 신규
+                buildDropdownButton('지역'),
                 const SizedBox(width: 8),
                 buildDropdownButton('길 유형'),
                 const SizedBox(width: 8),
@@ -190,8 +184,6 @@ class _SearchScreenState extends State<SearchScreen> {
               ],
             ),
           ),
-
-          // 스크롤 영역: 드롭다운 컨텐츠 + 선택한 태그
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -228,8 +220,6 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
           ),
-
-          // 검색 버튼
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: SizedBox(
@@ -240,16 +230,48 @@ class _SearchScreenState extends State<SearchScreen> {
                   backgroundColor: Colors.blueAccent,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => SearchedScreen(
-                        selectedTags: filteredTags,
-                        onlyFavorites: onlyFavorites, // ← SearchedScreen에 이 파라미터가 없으면 이 줄 삭제
-                      ),
-                    ),
-                  );
+                onPressed: () async {
+                  final filteredTags = getFilteredTags();
+                  final allSelectedTags = [
+                    ...filteredTags['지역'] ?? [],
+                    ...filteredTags['길 유형'] ?? [],
+                    ...filteredTags['이동수단'] ?? [],
+                  ];
+
+                  final url = Uri.parse('${ApiService.baseUrl}/search_routes');
+
+                  try {
+                    final response = await http.post(
+                      url,
+                      headers: {'Content-Type': 'application/json'},
+                      body: json.encode({"categories": allSelectedTags}),
+                    ).timeout(const Duration(seconds: 10));
+
+                    if (response.statusCode == 200) {
+                      final responseData = json.decode(response.body);
+                      final routes = responseData['routes'] as List<dynamic>;
+
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => SearchedScreen(
+                            selectedTags: filteredTags,
+                            onlyFavorites: onlyFavorites,
+                            searchResults: routes,
+                          ),
+                        ),
+                      );
+                    } else {
+                      final error = json.decode(response.body);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(error['message'] ?? "검색 실패")),
+                      );
+                    }
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("에러 발생: $e")),
+                    );
+                  }
                 },
                 child: const Text('검색하기', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
@@ -260,7 +282,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /// 상단 공통 버튼
   Widget buildDropdownButton(String title) {
     final bool isActive = activeDropdown == title;
     return Expanded(
@@ -272,98 +293,96 @@ class _SearchScreenState extends State<SearchScreen> {
             color: isActive ? Colors.blueAccent : Colors.white,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: Colors.grey.shade400),
-            boxShadow: isActive ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 4)] : [],
+            boxShadow: isActive ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 4)] : null,
           ),
-          child: Center(
-            child: Text(
-              title,
-              style: TextStyle(
-                color: isActive ? Colors.white : Colors.black87,
-                fontWeight: FontWeight.w500,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: isActive ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
               ),
-            ),
+              const SizedBox(width: 6),
+              Icon(
+                isActive ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+                color: isActive ? Colors.white : Colors.black87,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  /// 드롭다운 내부 컨텐츠
   Widget _buildDropdownContent() {
-    if (activeDropdown == '지역') {
-      return _buildRegionDropdown();
+    switch (activeDropdown) {
+      case '지역':
+        return buildRegionDropdown();
+      case '길 유형':
+        return buildSimpleTagGrid('길 유형');
+      case '이동수단':
+        return buildSimpleTagGrid('이동수단');
+      default:
+        return const SizedBox.shrink();
     }
-    // 길 유형/이동수단
-    final List<String> items = tagData[activeDropdown!] ?? const [];
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: items
-          .map((tag) => FilterChip(
-        label: Text(tag),
-        selected: selectedTags[activeDropdown!]!.contains(tag),
-        onSelected: (_) => toggleTag(activeDropdown!, tag),
-        backgroundColor: Colors.grey.shade100,
-        selectedColor: Colors.lightBlueAccent.shade100,
-        showCheckmark: false,
-        labelStyle: const TextStyle(fontSize: 14),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      ))
-          .toList(),
-    );
   }
 
-  /// 지역(부산) 드롭다운: 구 선택 + 동 다중 선택
-  Widget _buildRegionDropdown() {
-    final gu = _currentGu ?? _busanGus.first;
-    final dongList = _busanDongs[gu] ?? const [];
-
+  Widget buildRegionDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('구 선택', style: TextStyle(fontWeight: FontWeight.w600)),
+        DropdownButton<String>(
+          isExpanded: true,
+          value: _currentGu,
+          hint: const Text('구 선택'),
+          items: _busanGus.map((gu) => DropdownMenuItem(value: gu, child: Text(gu))).toList(),
+          onChanged: (val) => setState(() => _currentGu = val),
+        ),
         const SizedBox(height: 8),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: _busanGus.map((g) {
-              final bool isSel = gu == g;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: ChoiceChip(
-                  label: Text(g),
-                  selected: isSel,
-                  onSelected: (_) => setState(() => _currentGu = g),
-                  selectedColor: Colors.blueAccent.shade100,
-                  backgroundColor: Colors.grey.shade100,
-                  labelStyle: const TextStyle(fontSize: 14),
-                ),
+        if (_currentGu != null)
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: _busanDongs[_currentGu!]!.map((dong) {
+              final key = '$_currentGu/$dong';
+              return FilterChip(
+                label: Text(dong),
+                selected: selectedTags['지역']!.contains(key),
+                onSelected: (_) => toggleRegion(_currentGu!, dong),
+                backgroundColor: Colors.grey.shade100,
+                selectedColor: Colors.lightBlueAccent.shade100,
+                showCheckmark: false,
+                labelStyle: const TextStyle(fontSize: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               );
             }).toList(),
           ),
-        ),
-        const SizedBox(height: 12),
-        const Text('동 선택', style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: dongList.map((d) {
-            final key = '$gu/$d';
-            final bool selected = selectedTags['지역']!.contains(key);
-            return FilterChip(
-              label: Text(d),
-              selected: selected,
-              onSelected: (_) => toggleRegion(gu, d),
-              backgroundColor: Colors.grey.shade100,
-              selectedColor: Colors.lightBlueAccent.shade100,
-              showCheckmark: false,
-              labelStyle: const TextStyle(fontSize: 14),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            );
-          }).toList(),
-        ),
       ],
+    );
+  }
+
+  Widget buildSimpleTagGrid(String category) {
+    final tags = tagData[category]!;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: tags.map((tag) {
+        final isSelected = selectedTags[category]!.contains(tag);
+        return FilterChip(
+          label: Text(tag),
+          selected: isSelected,
+          onSelected: (_) => toggleTag(category, tag),
+          backgroundColor: Colors.grey.shade100,
+          selectedColor: Colors.lightBlueAccent.shade100,
+          showCheckmark: false,
+          labelStyle: const TextStyle(fontSize: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        );
+      }).toList(),
     );
   }
 }

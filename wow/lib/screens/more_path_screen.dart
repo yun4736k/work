@@ -1,6 +1,17 @@
 import 'package:flutter/material.dart';
 
 class MorePathScreen extends StatefulWidget {
+  final List<dynamic> allRoutes; // 전체 경로
+  final Map<String, dynamic>? selectedRoute; // 현재 선택된 경로
+  final Function(Map<String, dynamic>) onRouteSelected; // 선택 시 콜백
+
+  const MorePathScreen({
+    Key? key,
+    required this.allRoutes,
+    required this.selectedRoute,
+    required this.onRouteSelected,
+  }) : super(key: key);
+
   @override
   _MorePathScreenState createState() => _MorePathScreenState();
 }
@@ -15,110 +26,143 @@ class _MorePathScreenState extends State<MorePathScreen> {
     '즐겨찾기 낮은순',
   ];
 
+  late List<dynamic> routesToShow;
+
+  @override
+  void initState() {
+    super.initState();
+    _filterRoutes();
+  }
+
+  void _filterRoutes() {
+    routesToShow = widget.allRoutes
+        .where((route) => route != widget.selectedRoute)
+        .toList();
+    _sortRoutes();
+  }
+
+  void _sortRoutes() {
+    setState(() {
+      switch (_selectedAlgorithm) {
+        case '연관성':
+          routesToShow.sort((a, b) =>
+              (a['route_name'] ?? '').compareTo(b['route_name'] ?? ''));
+          break;
+        case '좋아요 높은순':
+          routesToShow.sort((b, a) =>
+              (a['favoriteCount'] ?? 0).compareTo(b['favoriteCount'] ?? 0));
+          break;
+        case '좋아요 낮은순':
+          routesToShow.sort((a, b) =>
+              (a['favoriteCount'] ?? 0).compareTo(b['favoriteCount'] ?? 0));
+          break;
+        case '즐겨찾기 높은순':
+          routesToShow.sort((b, a) =>
+              (a['rating'] ?? 0.0).compareTo(b['rating'] ?? 0.0));
+          break;
+        case '즐겨찾기 낮은순':
+          routesToShow.sort((a, b) =>
+              (a['rating'] ?? 0.0).compareTo(b['rating'] ?? 0.0));
+          break;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFFF8F4EC),
+      backgroundColor: const Color(0xFFF8F4EC),
       appBar: AppBar(
-        backgroundColor: Color(0xFF2D2D2D),
+        backgroundColor: const Color(0xFF2D2D2D),
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
         ),
         title: DropdownButton<String>(
           value: _selectedAlgorithm,
           dropdownColor: Colors.black,
-          icon: Icon(Icons.arrow_drop_down, color: Colors.white),
-          style: TextStyle(color: Colors.white),
+          icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+          style: const TextStyle(color: Colors.white),
           onChanged: (String? newValue) {
-            setState(() {
-              _selectedAlgorithm = newValue!;
-            });
+            if (newValue != null) {
+              setState(() {
+                _selectedAlgorithm = newValue;
+                _sortRoutes();
+              });
+            }
           },
           items: _algorithms.map<DropdownMenuItem<String>>((String value) {
             return DropdownMenuItem<String>(
               value: value,
-              child: Text(value, style: TextStyle(color: Colors.white)),
+              child: Text(value, style: const TextStyle(color: Colors.white)),
             );
           }).toList(),
         ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.search, color: Colors.white),
-            onPressed: () {},
-          ),
-        ],
       ),
       body: ListView.builder(
-        itemCount: 5,
-        padding: EdgeInsets.all(16),
+        itemCount: routesToShow.length,
+        padding: const EdgeInsets.all(16),
         itemBuilder: (context, index) {
-          return _buildRouteCard(context, index);
+          final route = routesToShow[index];
+          return _buildRouteCard(context, route);
         },
       ),
     );
   }
 
-  Widget _buildRouteCard(BuildContext context, int index) {
+  Widget _buildRouteCard(BuildContext context, Map<String, dynamic> route) {
+    final routeName = route['route_name'] ?? '이름 없음';
+    final creatorName = route['nickname'] ?? '알 수 없음';
+    final favoriteCount = route['favoriteCount'] ?? 0;
+    final rating = route['rating'] ?? 0.0;
+
     return Card(
-      margin: EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 4,
       child: Padding(
-        padding: EdgeInsets.all(12),
+        padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            // 이미지
+            // 이미지 플레이스홀더
             Container(
               width: 50,
               height: 50,
-              color: Colors.grey[300],
-              margin: EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              margin: const EdgeInsets.only(right: 12),
             ),
-            // 텍스트 및 선택 버튼
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '경로 이미지',
-                    style: TextStyle(
+                    routeName,
+                    style: const TextStyle(
                       color: Color(0xFF2D2D2D),
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
-                      Text('생성자 ID: ', style: TextStyle(color: Colors.grey[700])),
-                      Text('12345', style: TextStyle(color: Colors.grey[800])),
+                      const Text('생성자: ', style: TextStyle(color: Colors.grey)),
+                      Text(creatorName, style: const TextStyle(color: Colors.black)),
                     ],
                   ),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
-                      Text('지역: ', style: TextStyle(color: Colors.grey[700])),
-                      Text('TEXT', style: TextStyle(color: Colors.grey[800])),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Text('홀길이: ', style: TextStyle(color: Colors.grey[700])),
-                      Text('123', style: TextStyle(color: Colors.grey[800])),
-                    ],
-                  ),
-                  SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.favorite, color: Colors.red, size: 20),
-                      SizedBox(width: 4),
-                      Text('num', style: TextStyle(color: Colors.red)),
-                      SizedBox(width: 12),
-                      Icon(Icons.star, color: Colors.amber, size: 20),
-                      SizedBox(width: 4),
-                      Text('num', style: TextStyle(color: Colors.amber)),
+                      const Icon(Icons.favorite, color: Colors.red, size: 18),
+                      const SizedBox(width: 4),
+                      Text('$favoriteCount', style: const TextStyle(color: Colors.red)),
+                      const SizedBox(width: 12),
+                      const Icon(Icons.star, color: Colors.amber, size: 18),
+                      const SizedBox(width: 4),
+                      Text(rating.toStringAsFixed(1), style: const TextStyle(color: Colors.amber)),
                     ],
                   ),
                 ],
@@ -126,17 +170,18 @@ class _MorePathScreenState extends State<MorePathScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                print("경로 $index 선택됨");
+                widget.onRouteSelected(route);
+                Navigator.pop(context);
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF3CAEA3),
+                backgroundColor: const Color(0xFF3CAEA3),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               ),
-              child: Text('선택', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text('선택', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
