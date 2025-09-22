@@ -318,7 +318,7 @@ def toggle_favorite():
             user_id=user_id,
             route_id=route.id,
             route_name=route.route_name,
-            route_path=json.loads(route.route_path), 
+            route_path=route.route_path,
             category=route.category
         )
         db.session.add(new_fav)
