@@ -227,16 +227,22 @@ def delete_route(route_id):
 
 @app.route('/routes', methods=['GET'])
 def get_routes():
-    # URL 쿼리 파라미터에서 user_id를 가져옵니다.
+    # 1. URL 쿼리 파라미터에서 user_id를 가져옵니다.
     user_id = request.args.get('user_id')
 
-    # user_id가 있으면 해당 사용자의 경로만 조회합니다.
+    # 2. 현재 사용자의 모든 즐겨찾기 경로 ID를 미리 조회하여 집합(set)으로 만듭니다.
+    #    이렇게 하면 각 경로를 순회하며 데이터베이스를 반복적으로 조회하는 비효율을 막을 수 있습니다.
+    favorite_route_ids = {fav.route_id for fav in Favorite.query.filter_by(user_id=user_id).all()}
+
+    # 3. user_id가 있으면 해당 사용자의 경로만 조회합니다.
     if user_id:
         routes = Route.query.filter_by(user_id=user_id).all()
     else:
         # user_id가 없으면 모든 경로를 반환합니다. (선택사항)
         routes = Route.query.all()
         
+    # 4. 각 경로 객체를 딕셔너리로 변환하여 JSON 응답을 생성합니다.
+    #    이때, 'is_favorite' 필드를 추가합니다.
     return jsonify({
         "routes": [
             {
@@ -246,7 +252,9 @@ def get_routes():
                 "route_path": json.loads(r.route_path),
                 "category": r.category,
                 "like_count": r.like_count,
-                "favorite_count": r.favorite_count
+                "favorite_count": r.favorite_count,
+                # ✨ 핵심 수정 부분: route.id가 즐겨찾기 ID 집합에 있는지 확인하여 True/False를 반환
+                "is_favorite": r.id in favorite_route_ids  
             }
             for r in routes
         ]
