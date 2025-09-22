@@ -210,6 +210,7 @@ def get_routes():
     return jsonify({
         "routes": [
             {
+                "id": r.id,
                 "user_id": r.user_id,
                 "route_name": r.route_name,
                 "route_path": json.loads(r.route_path),
