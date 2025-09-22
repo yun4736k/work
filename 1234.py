@@ -195,6 +195,34 @@ def recent_route():
 
 # app.py
 
+@app.route('/delete_route/<int:route_id>', methods=['DELETE'])
+def delete_route(route_id):
+    """
+    주어진 ID에 해당하는 경로를 데이터베이스에서 삭제합니다.
+    """
+    print(f"📥 경로 삭제 요청 수신: ID={route_id}")
+    
+    # 1. 주어진 ID로 경로를 찾습니다.
+    route_to_delete = Route.query.get(route_id)
+    
+    # 2. 경로가 존재하는지 확인합니다.
+    if route_to_delete:
+        try:
+            # 3. 경로가 존재하면 삭제하고 커밋합니다.
+            db.session.delete(route_to_delete)
+            db.session.commit()
+            print(f"✅ 경로 ID {route_id} 삭제 완료")
+            return jsonify({"message": "경로가 성공적으로 삭제되었습니다."}), 200
+        except Exception as e:
+            # 4. 삭제 중 오류 발생 시 롤백합니다.
+            db.session.rollback()
+            print(f"❌ 경로 삭제 중 오류 발생: {e}")
+            return jsonify({"message": f"경로 삭제 실패: 서버 내부 오류. ({str(e)})"}), 500
+    
+    # 5. 해당 ID의 경로를 찾을 수 없으면 404를 반환합니다.
+    print(f"⚠️ 경로 ID {route_id}를 찾을 수 없음")
+    return jsonify({"message": "경로를 찾을 수 없습니다."}), 404
+
 @app.route('/routes', methods=['GET'])
 def get_routes():
     # URL 쿼리 파라미터에서 user_id를 가져옵니다.
