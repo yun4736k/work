@@ -193,9 +193,20 @@ def recent_route():
         })
     return jsonify({"message": "최근 이용한 경로가 없습니다."}), 404
 
+# app.py
+
 @app.route('/routes', methods=['GET'])
 def get_routes():
-    routes = Route.query.all()
+    # URL 쿼리 파라미터에서 user_id를 가져옵니다.
+    user_id = request.args.get('user_id')
+
+    # user_id가 있으면 해당 사용자의 경로만 조회합니다.
+    if user_id:
+        routes = Route.query.filter_by(user_id=user_id).all()
+    else:
+        # user_id가 없으면 모든 경로를 반환합니다. (선택사항)
+        routes = Route.query.all()
+        
     return jsonify({
         "routes": [
             {
