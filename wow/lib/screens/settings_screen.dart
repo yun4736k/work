@@ -248,26 +248,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                if (isUserRoute)
-                                  IconButton(
-                                    icon: const Icon(Icons.delete, color: Colors.red),
-                                    onPressed: () async {
-                                      final confirmDelete = await DialogHelper.showConfirmation(
-                                        context,
-                                        "경로 삭제",
-                                        "'$routeName' 경로를 삭제하시겠습니까?",
-                                      );
-                                      if (confirmDelete == true) {
-                                        try {
-                                          await ApiService.deleteRoute(routeId: route['id']);
-                                          DialogHelper.showMessage(context, "경로 삭제 완료");
-                                          setState(() {});
-                                        } catch (e) {
-                                          DialogHelper.showMessage(context, "경로 삭제 실패: $e");
-                                        }
-                                      }
-                                    },
-                                  ),
                                 IconButton(
                                   icon: Icon(
                                     route['is_favorite'] == true ? Icons.star : Icons.star_border,
@@ -338,6 +318,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
   }
+
 
   void _showLogoutConfirmation() {
     showDialog(
