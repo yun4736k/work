@@ -16,7 +16,7 @@ import time
 app = Flask(__name__)
 
 # DB & SQLAlchemy 설정
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@15.164.251.104/walkcanvas'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@15.164.163.171/walkcanvas'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_pre_ping": True,
