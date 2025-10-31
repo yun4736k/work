@@ -54,7 +54,12 @@ class _SearchedScreenState extends State<SearchedScreen> {
   };
 
   final Map<int, String> idToRoadType = {
-    101: '포장도로', 102: '비포장도로', 103: '등산로', 104: '짧은 산책로', 105: '긴 산책로', 106: '운동용 산책로',
+    101: '포장도로',
+    102: '비포장도로',
+    103: '등산로',
+    104: '짧은 산책로',
+    105: '긴 산책로',
+    106: '운동용 산책로',
   };
 
   final Map<int, String> idToTransport = {
@@ -121,14 +126,14 @@ class _SearchedScreenState extends State<SearchedScreen> {
         }
       });
     } catch (e) {
-      print('[favorites backfill error] $e');
+      // ignore & keep UI responsive
     }
   }
 
   void _sortRoutes() {
     widget.searchResults.sort((a, b) {
-      final nameA = a['route_name'] ?? '';
-      final nameB = b['route_name'] ?? '';
+      final nameA = (a['route_name'] ?? '').toString();
+      final nameB = (b['route_name'] ?? '').toString();
       return nameA.compareTo(nameB);
     });
   }
@@ -158,9 +163,67 @@ class _SearchedScreenState extends State<SearchedScreen> {
     }
     if (pts.isNotEmpty) {
       final bounds = LatLngBounds.fromPoints(pts);
-      _mapController.fitBounds(bounds,
-          options: const FitBoundsOptions(padding: EdgeInsets.all(50)));
+      _mapController.fitBounds(
+        bounds,
+        options: const FitBoundsOptions(padding: EdgeInsets.all(50)),
+      );
     }
+  }
+
+  // ====== 라벨 해석: 주입 라벨 우선 → ID 정규화(101/201 체계) → 보조 키 ======
+  String _resolveRegionLabel(Map<String, dynamic> r) {
+    final injected = (r['regionLabel'] as String?);
+    if (injected != null && injected.trim().isNotEmpty) return injected;
+
+    final raw = r['region_id']?.toString() ?? '';
+    final id = int.tryParse(raw);
+    return idToRegion[id ?? -1] ?? '-';
+  }
+
+  String _resolveRoadTypeLabel(Map<String, dynamic> r) {
+    final injected = (r['roadTypeLabel'] as String?);
+    if (injected != null && injected.trim().isNotEmpty) return injected;
+
+    final raw = r['road_type_id']?.toString() ?? '';
+    // ① 101~106 직접 매핑
+    final id = int.tryParse(raw);
+    if (id != null && idToRoadType.containsKey(id)) return idToRoadType[id]!;
+    // ② "01"~"06" / 1~6 → 101~106
+    final short1 = int.tryParse(raw);
+    if (short1 != null && short1 >= 1 && short1 <= 6) {
+      final longId = 100 + short1;
+      return idToRoadType[longId] ?? '-';
+    }
+    if (raw.length == 2 && raw.startsWith('0')) {
+      final n = int.tryParse(raw);
+      if (n != null) return idToRoadType[100 + n] ?? '-';
+    }
+    // ③ category_labels가 List면 첫 값 사용
+    if (r['category_labels'] is List && (r['category_labels'] as List).isNotEmpty) {
+      return (r['category_labels'] as List).first.toString();
+    }
+    return '-';
+  }
+
+  String _resolveTransportLabel(Map<String, dynamic> r) {
+    final injected = (r['transportLabel'] as String?);
+    if (injected != null && injected.trim().isNotEmpty) return injected;
+
+    final raw = r['transport_id']?.toString() ?? '';
+    // ① 201~205 직접 매핑
+    final id = int.tryParse(raw);
+    if (id != null && idToTransport.containsKey(id)) return idToTransport[id]!;
+    // ② "01"~"05" / 1~5 → 201~205
+    final short1 = int.tryParse(raw);
+    if (short1 != null && short1 >= 1 && short1 <= 5) {
+      final longId = 200 + short1;
+      return idToTransport[longId] ?? '-';
+    }
+    if (raw.length == 2 && raw.startsWith('0')) {
+      final n = int.tryParse(raw);
+      if (n != null) return idToTransport[200 + n] ?? '-';
+    }
+    return '-';
   }
 
   // 즐겨찾기 토글
@@ -207,8 +270,33 @@ class _SearchedScreenState extends State<SearchedScreen> {
     }
   }
 
+  // ---------- UI Helpers ----------
 
-@override
+  Widget _tagChip(String text, {IconData? icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      margin: const EdgeInsets.only(right: 6, bottom: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: Colors.black54),
+            const SizedBox(width: 4),
+          ],
+          Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+        ],
+      ),
+    );
+  }
+
+  // ---------- Build ----------
+
+  @override
   Widget build(BuildContext context) {
     final routesToShow = (widget.searchResults.length > 3
         ? widget.searchResults.sublist(0, 3)
@@ -221,8 +309,18 @@ class _SearchedScreenState extends State<SearchedScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF2D2D2D),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF2D2D2D), Color(0xFF434343)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         title: const Text('지도 (선택 경로)', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
@@ -234,7 +332,10 @@ class _SearchedScreenState extends State<SearchedScreen> {
           if (widget.selectedTags.values.any((v) => v.isNotEmpty))
             Container(
               width: double.infinity,
-              color: Colors.white,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6)],
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Wrap(
                 spacing: 6,
@@ -246,52 +347,59 @@ class _SearchedScreenState extends State<SearchedScreen> {
           // 상단 지도
           Expanded(
             flex: 4,
-            child: FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                center: currentPosition != null
-                    ? LatLng(currentPosition!.latitude, currentPosition!.longitude)
-                    : const LatLng(35.1796, 129.0756),
-                zoom: 15.0,
+            child: Container(
+              margin: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
               ),
-              children: [
-                TileLayer(
-                  urlTemplate:
-                  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  subdomains: const ['a', 'b', 'c'],
+              clipBehavior: Clip.antiAlias,
+              child: FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  center: currentPosition != null
+                      ? LatLng(currentPosition!.latitude, currentPosition!.longitude)
+                      : const LatLng(35.1796, 129.0756),
+                  zoom: 15.0,
                 ),
-                if (selectedRoute != null)
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: _convertToLatLngList(selectedRoute!['route_path']),
-                        color: Colors.blueAccent.shade400,
-                        strokeWidth: 4,
-                      ),
-                    ],
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    subdomains: const ['a', 'b', 'c'],
                   ),
-                if (currentPosition != null)
-                  MarkerLayer(
-                    markers: [
-                      Marker(
-                        point: LatLng(currentPosition!.latitude, currentPosition!.longitude),
-                        width: 50,
-                        height: 50,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.redAccent.withOpacity(0.7),
-                            border: Border.all(color: Colors.white, width: 3),
-                          ),
-                          child: const Icon(Icons.person, color: Colors.white, size: 24),
+                  if (selectedRoute != null)
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: _convertToLatLngList(selectedRoute!['route_path']),
+                          color: Colors.blueAccent.shade400,
+                          strokeWidth: 4,
                         ),
-                      ),
-                    ],
-                  ),
-              ],
+                      ],
+                    ),
+                  if (currentPosition != null)
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: LatLng(currentPosition!.latitude, currentPosition!.longitude),
+                          width: 50,
+                          height: 50,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.redAccent.withOpacity(0.7),
+                              border: Border.all(color: Colors.white, width: 3),
+                            ),
+                            child: const Icon(Icons.person, color: Colors.white, size: 24),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 8),
 
           // 선택된 경로 카드 (선택된 경우에만 표시)
           if (selectedRoute != null)
@@ -308,17 +416,27 @@ class _SearchedScreenState extends State<SearchedScreen> {
               itemCount: routesToShow.length + 1,
               itemBuilder: (context, index) {
                 if (index == routesToShow.length) {
+                  // --- "더 많은 경로 보기" 버튼: 라벨을 주입해 전달 ---
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: ElevatedButton(
                         onPressed: () {
+                          // 기존 searchResults에 라벨 키를 주입해서 전달 (정규화 포함)
+                          final enriched = widget.searchResults
+                              .map<Map<String, dynamic>>((raw) {
+                            final map = Map<String, dynamic>.from(raw as Map);
+                            map['regionLabel'] = _resolveRegionLabel(map);
+                            map['roadTypeLabel'] = _resolveRoadTypeLabel(map);
+                            map['transportLabel'] = _resolveTransportLabel(map);
+                            return map;
+                          }).toList();
+
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (_) => MorePathScreen(
-                                allRoutes:
-                                widget.searchResults.cast<Map<String, dynamic>>(),
+                                allRoutes: enriched,
                                 selectedTags: widget.selectedTags
                                     .map((key, value) => MapEntry(key, value.toString())),
                                 onRouteSelected: (route) {
@@ -339,6 +457,7 @@ class _SearchedScreenState extends State<SearchedScreen> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
+                          elevation: 3,
                         ),
                         child: const Text(
                           '더 많은 경로 보기',
@@ -374,15 +493,13 @@ class _SearchedScreenState extends State<SearchedScreen> {
                 child: ElevatedButton.icon(
                   onPressed: canStart
                       ? () {
-                    final pts =
-                    _convertToLatLngList(selectedRoute!['route_path']);
+                    final pts = _convertToLatLngList(selectedRoute!['route_path']);
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => RunningStartScreen(
                           userId: widget.userId ?? 'guest',
-                          routeName:
-                          selectedRoute!['route_name'] ?? '선택 경로',
+                          routeName: selectedRoute!['route_name'] ?? '선택 경로',
                           polylinePoints: pts,
                           intervalMinutes: 1,
                           intervalSeconds: 0,
@@ -396,6 +513,7 @@ class _SearchedScreenState extends State<SearchedScreen> {
                   label: const Text('선택한 경로로 시작'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF3CAEA3),
+                    disabledBackgroundColor: Colors.grey.shade400,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
@@ -428,13 +546,7 @@ class _SearchedScreenState extends State<SearchedScreen> {
           }
 
           if (label.isNotEmpty) {
-            chips.add(
-              Chip(
-                label: Text(label,
-                    style: const TextStyle(fontSize: 14, color: Colors.black87)),
-                backgroundColor: Colors.grey.shade200,
-              ),
-            );
+            chips.add(_tagChip(label));
           }
         }
       }
@@ -444,15 +556,14 @@ class _SearchedScreenState extends State<SearchedScreen> {
   }
 
   Widget _buildSelectedRouteCard(Map<String, dynamic> route) {
-    final routeName = route['route_name'] ?? '-';
-    final creatorName = route['nickname'] ?? '-';
+    final routeName = route['route_name']?.toString() ?? '-';
+    final creatorName = route['nickname']?.toString() ?? '-';
     final rid = int.tryParse((route['id'] ?? route['route_id']).toString());
-    final regionLabel =
-        idToRegion[int.tryParse(route['region_id']?.toString() ?? '') ?? 0] ?? '-';
-    final roadTypeLabel =
-        idToRoadType[int.tryParse(route['road_type_id']?.toString() ?? '') ?? 0] ?? '-';
-    final transportLabel =
-        idToTransport[int.tryParse(route['transport_id']?.toString() ?? '') ?? 0] ?? '-';
+
+    // ✅ 정규화된 라벨 사용
+    final regionLabel = _resolveRegionLabel(route);
+    final roadTypeLabel = _resolveRoadTypeLabel(route);
+    final transportLabel = _resolveTransportLabel(route);
 
     final favCount = (rid != null)
         ? (_favoriteCounts[rid] ?? (route['favorite_count'] ?? 0))
@@ -464,12 +575,13 @@ class _SearchedScreenState extends State<SearchedScreen> {
     final pts = _convertToLatLngList(route['route_path']);
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 0),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 4,
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 6,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 미니 맵
           SizedBox(
             height: 200,
             child: pts.isNotEmpty
@@ -477,13 +589,11 @@ class _SearchedScreenState extends State<SearchedScreen> {
               options: MapOptions(
                 interactiveFlags: InteractiveFlag.none,
                 bounds: LatLngBounds.fromPoints(pts),
-                boundsOptions:
-                const FitBoundsOptions(padding: EdgeInsets.all(8)),
+                boundsOptions: const FitBoundsOptions(padding: EdgeInsets.all(8)),
               ),
               children: [
                 TileLayer(
-                  urlTemplate:
-                  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                   subdomains: const ['a', 'b', 'c'],
                 ),
                 PolylineLayer(
@@ -498,6 +608,7 @@ class _SearchedScreenState extends State<SearchedScreen> {
               child: const Center(child: Text("경로 스냅샷 없음")),
             ),
           ),
+          // 본문
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -507,26 +618,32 @@ class _SearchedScreenState extends State<SearchedScreen> {
                   children: [
                     Expanded(
                       child: Text(routeName,
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                     IconButton(
-                      tooltip: widget.userId == null
-                          ? '로그인 필요'
-                          : (isFav ? '즐겨찾기 해제' : '즐겨찾기'),
-                      onPressed:
-                      (rid == null || widget.userId == null) ? null : () => _toggleFavorite(route),
-                      icon: Icon(isFav ? Icons.star : Icons.star_border,
-                          color: Colors.amber),
+                      tooltip: widget.userId == null ? '로그인 필요' : (isFav ? '즐겨찾기 해제' : '즐겨찾기'),
+                      onPressed: (rid == null || widget.userId == null) ? null : () => _toggleFavorite(route),
+                      icon: Icon(isFav ? Icons.star : Icons.star_border, color: Colors.amber),
                     ),
                     Text('$favCount'),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text('생성자: $creatorName'),
-                Text('지역: $regionLabel'),
-                Text('길 유형: $roadTypeLabel'),
-                Text('이동수단: $transportLabel'),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.person, size: 16, color: Colors.black54),
+                    const SizedBox(width: 6),
+                    Text('생성자 $creatorName', style: const TextStyle(color: Colors.black87)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  children: [
+                    _tagChip(regionLabel, icon: Icons.place),
+                    _tagChip(roadTypeLabel, icon: Icons.route),
+                    _tagChip(transportLabel, icon: Icons.directions_walk),
+                  ],
+                ),
               ],
             ),
           ),
@@ -536,16 +653,14 @@ class _SearchedScreenState extends State<SearchedScreen> {
   }
 
   Widget _buildListRouteCard(Map<String, dynamic> route, {bool isSelected = false}) {
-    final routeName = route['route_name'] ?? '이름 없음';
-    final creatorName = route['nickname'] ?? '알 수 없음';
+    final routeName = route['route_name']?.toString() ?? '이름 없음';
+    final creatorName = route['nickname']?.toString() ?? '알 수 없음';
     final rid = int.tryParse((route['id'] ?? route['route_id']).toString());
 
-    final regionLabel =
-        idToRegion[int.tryParse(route['region_id']?.toString() ?? '') ?? 0] ?? '-';
-    final roadTypeLabel =
-        idToRoadType[int.tryParse(route['road_type_id']?.toString() ?? '') ?? 0] ?? '-';
-    final transportLabel =
-        idToTransport[int.tryParse(route['transport_id']?.toString() ?? '') ?? 0] ?? '-';
+    // ✅ 정규화된 라벨 사용
+    final regionLabel = _resolveRegionLabel(route);
+    final roadTypeLabel = _resolveRoadTypeLabel(route);
+    final transportLabel = _resolveTransportLabel(route);
 
     final favCount = (rid != null)
         ? (_favoriteCounts[rid] ?? (route['favorite_count'] ?? 0))
@@ -559,8 +674,8 @@ class _SearchedScreenState extends State<SearchedScreen> {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       color: isSelected ? Colors.blue[50] : Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: isSelected ? 4 : 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: isSelected ? 5 : 2,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
@@ -568,21 +683,24 @@ class _SearchedScreenState extends State<SearchedScreen> {
           children: [
             // 지도 스냅샷
             Container(
-              width: 120,
-              height: 120,
+              width: 110,
+              height: 110,
               margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6)],
+              ),
+              clipBehavior: Clip.antiAlias,
               child: pts.isNotEmpty
                   ? FlutterMap(
                 options: MapOptions(
                   interactiveFlags: InteractiveFlag.none,
                   bounds: LatLngBounds.fromPoints(pts),
-                  boundsOptions:
-                  const FitBoundsOptions(padding: EdgeInsets.all(4)),
+                  boundsOptions: const FitBoundsOptions(padding: EdgeInsets.all(4)),
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate:
-                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                     subdomains: const ['a', 'b', 'c'],
                   ),
                   PolylineLayer(
@@ -605,27 +723,45 @@ class _SearchedScreenState extends State<SearchedScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(routeName,
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: Text(
+                          routeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
                       ),
                       IconButton(
-                        tooltip: widget.userId == null
-                            ? '로그인 필요'
-                            : (isFav ? '즐겨찾기 해제' : '즐겨찾기'),
-                        onPressed:
-                        (rid == null || widget.userId == null) ? null : () => _toggleFavorite(route),
+                        tooltip: widget.userId == null ? '로그인 필요' : (isFav ? '즐겨찾기 해제' : '즐겨찾기'),
+                        onPressed: (rid == null || widget.userId == null) ? null : () => _toggleFavorite(route),
                         icon: Icon(isFav ? Icons.star : Icons.star_border,
-                            color: Colors.amber, size: 18),
+                            color: Colors.amber, size: 24),
                       ),
                       Text('$favCount'),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text('생성자: $creatorName'),
-                  Text('지역: $regionLabel'),
-                  Text('길 유형: $roadTypeLabel'),
-                  Text('이동수단: $transportLabel'),
+                  Row(
+                    children: [
+                      const Icon(Icons.person, size: 14, color: Colors.black54),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '생성자: $creatorName',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  // 태그(지역/길유형/이동수단)
+                  Wrap(
+                    children: [
+                      _tagChip(regionLabel, icon: Icons.place),
+                      _tagChip(roadTypeLabel, icon: Icons.route),
+                      _tagChip(transportLabel, icon: Icons.directions_walk),
+                    ],
+                  ),
                 ],
               ),
             ),

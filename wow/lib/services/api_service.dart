@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 class ApiService {
-  static const String baseUrl = "http://15.164.251.104:5000"; // 서버 주소
+  static const String baseUrl = "http://3.39.231.226:5000"; // 서버 주소
 
   // 공통 디코더
   static dynamic _decodeBody(http.Response res) =>
@@ -219,5 +219,26 @@ class ApiService {
       };
     }
     throw Exception('즐겨찾기 상태 변경 실패: ${res.statusCode}');
+  }static Future<Map<String, dynamic>> deleteAccount({
+    required String userId,
+    required String password,
+  }) async {
+    final uri = Uri.parse('$baseUrl/users/$userId');
+    final res = await http.delete(
+      uri,
+      headers: {'Content-Type': 'application/json; charset=utf-8'},
+      body: jsonEncode({'password': password}),
+    );
+
+    // 한글 포함 대비
+    final decoded =
+    jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+
+    // 서버가 ok 필드를 주지 않는 경우를 대비해 보정
+    if (decoded['ok'] == null) {
+      decoded['ok'] = res.statusCode >= 200 && res.statusCode < 300;
+    }
+    decoded['statusCode'] = res.statusCode;
+    return decoded;
   }
 }

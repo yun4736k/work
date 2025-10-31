@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:vibration/vibration.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:geocoding/geocoding.dart'; // ★ 지역 역지오코딩
 
 class RunningStartScreen extends StatefulWidget {
   final String userId;
@@ -62,7 +63,6 @@ class _RunningStartScreenState extends State<RunningStartScreen>
   ];
 
   // ✅ DB 스키마 맞춘 매핑 (라벨 → *_id 코드)
-  //    서버의 코드 정책에 맞춰 수정하세요.
   static const Map<String, String> _roadTypeCode = {
     "포장도로": "01",
     "비포장도로": "02",
@@ -79,12 +79,30 @@ class _RunningStartScreenState extends State<RunningStartScreen>
     "유모차": "05",
   };
 
-  // 지역은 현재 UI에서 받지 않으므로 기본값 사용
-  static const String _defaultRegionId = "00"; // 미지정
+  // ★ 지역 라벨 → ID 매핑 (부산)
+  static const Map<String, int> _regionToId = {
+    '중구/광복동': 1, '중구/남포동': 2, '중구/대청동': 3, '중구/동광동': 4, '중구/보수동': 5, '중구/부평동': 6,
+    '서구/동대신동': 7, '서구/서대신동': 8, '서구/암남동': 9, '서구/아미동': 10, '서구/토성동': 11,
+    '동구/초량동': 12, '동구/수정동': 13, '동구/좌천동': 14, '동구/범일동': 15,
+    '영도구/남항동': 16, '영도구/신선동': 17, '영도구/봉래동': 18, '영도구/청학동': 19, '영도구/동삼동': 20,
+    '부산진구/부전동': 21, '부산진구/전포동': 22, '부산진구/양정동': 23, '부산진구/범전동': 24, '부산진구/범천동': 25, '부산진구/가야동': 26,
+    '동래구/명장동': 27, '동래구/사직동': 28, '동래구/안락동': 29, '동래구/온천동': 30, '동래구/수안동': 31,
+    '남구/대연동': 32, '남구/문현동': 33, '남구/감만동': 34, '남구/용호동': 35, '남구/우암동': 36,
+    '북구/구포동': 37, '북구/덕천동': 38, '북구/만덕동': 39, '북구/화명동': 40,
+    '해운대구/우동': 41, '해운대구/중동': 42, '해운대구/좌동': 43, '해운대구/송정동': 44, '해운대구/재송동': 45,
+    '사하구/괴정동': 46, '사하구/당리동': 47, '사하구/하단동': 48, '사하구/장림동': 49, '사하구/다대동': 50,
+    '금정구/장전동': 51, '금정구/구서동': 52, '금정구/부곡동': 53, '금정구/서동': 54, '금정구/금사동': 55,
+    '강서구/명지동': 56, '강서구/가락동': 57, '강서구/녹산동': 58, '강서구/대저1동': 59, '강서구/대저2동': 60,
+    '연제구/연산동': 61,
+    '수영구/광안동': 62, '수영구/남천동': 63, '수영구/망미동': 64, '수영구/민락동': 65,
+    '사상구/감전동': 66, '사상구/괘법동': 67, '사상구/덕포동': 68, '사상구/모라동': 69,
+    '기장군/기장읍': 70, '기장군/정관읍': 71, '기장군/일광읍': 72, '기장군/철마면': 73, '기장군/장안읍': 74,
+  };
 
   // ========== 상태 변수 ==========
-  String _selectedCategory = '포장도로';   // 표시용 라벨(길 유형)
-  String _selectedTransport = '걷기';      // 표시용 라벨(이동수단)
+  // (변경) 복수 선택: 기본값은 한 개 선택된 상태로 시작
+  List<String> _selectedCategories = ['포장도로'];   // 표시용 라벨(길 유형, 복수)
+  String _selectedTransport = '걷기';               // 표시용 라벨(이동수단)
   String? _currentRouteName;
   Position? _currentPosition;
   final List<LatLng> _walkedPath = [];
@@ -120,6 +138,9 @@ class _RunningStartScreenState extends State<RunningStartScreen>
   double get averageSpeed => _elapsed.inMinutes > 0
       ? (distanceInKm) / (_elapsed.inMinutes / 60)
       : 0.0;
+
+  // (추가) 다중 카테고리 문자열 표시용
+  String get categoriesText => _selectedCategories.join(', ');
 
   @override
   void initState() {
@@ -159,15 +180,15 @@ class _RunningStartScreenState extends State<RunningStartScreen>
         final rn = await _showRouteNameDialog();
         if (!mounted) return;
 
-        final pathType = await _showCategoryDialog(); // 길 유형
+        final pathTypes = await _showCategoryMultiDialog(); // ★ 복수 선택
         if (!mounted) return;
 
-        final transport = await _showTransportDialog(); // 이동수단
+        final transport = await _showTransportDialog(); // 단일 선택
         if (!mounted) return;
 
         setState(() {
           if (rn != null && rn.isNotEmpty) _currentRouteName = rn;
-          if (pathType != null && pathType.isNotEmpty) _selectedCategory = pathType;
+          if (pathTypes != null && pathTypes.isNotEmpty) _selectedCategories = pathTypes;
           if (transport != null && transport.isNotEmpty) _selectedTransport = transport;
         });
       }
@@ -218,8 +239,16 @@ class _RunningStartScreenState extends State<RunningStartScreen>
   }
 
   // ========== 추적 ==========
-  void _startTracking() {
+  void _startTracking() async {
     if (_isRunning) return;
+
+    // ✅ 현재 위치 확보 & 경로 시드 1점 추가
+    if (_currentPosition == null) {
+      await _getCurrentLocation();
+    }
+    if (_walkedPath.isEmpty && _currentPosition != null) {
+      _walkedPath.add(LatLng(_currentPosition!.latitude, _currentPosition!.longitude));
+    }
 
     setState(() => _isRunning = true);
     _pulseController.repeat(reverse: true);
@@ -260,7 +289,7 @@ class _RunningStartScreenState extends State<RunningStartScreen>
   void _startLocationTracking() {
     _trackingTimer?.cancel();
     _trackingTimer = Timer.periodic(
-      Duration(seconds: _locationUpdateInterval),
+      const Duration(seconds: _locationUpdateInterval),
           (_) => _updateLocation(),
     );
   }
@@ -340,22 +369,92 @@ class _RunningStartScreenState extends State<RunningStartScreen>
     _alarmTimer = null;
   }
 
+  // ========== 지역 태그/ID 해석 ==========
+  /// 현재 위치(또는 지정 좌표)를 역지오코딩해 "구/동" 라벨과 region_id를 찾는다.
+  Future<Map<String, String>?> _resolveRegionTag({LatLng? base}) async {
+    // ✅ 기준 좌표 우선순위: 인자 → walkedPath.last → currentPosition → polylinePoints.first
+    LatLng? target = base;
+    target ??= _walkedPath.isNotEmpty ? _walkedPath.last : null;
+    target ??= (_currentPosition != null)
+        ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
+        : null;
+    target ??= widget.polylinePoints.isNotEmpty ? widget.polylinePoints.first : null;
+
+    if (target == null) return null;
+
+    try {
+      final placemarks = await placemarkFromCoordinates(target.latitude, target.longitude);
+      if (placemarks.isEmpty) return null;
+
+      final p = placemarks.first;
+
+      // ⚠️ 기기/OS마다 필드가 다를 수 있으니 안전한 fallback
+      // 보통: locality(구), subLocality(동) / 간혹 subAdministrativeArea(구), thoroughfare(도로명) 등이 섞임
+      final guRaw   = (p.locality ?? p.subAdministrativeArea ?? '').trim();
+      final dongRaw = (p.subLocality ?? p.thoroughfare ?? '').trim();
+
+      final gu   = guRaw.replaceAll(' ', '');
+      final dong = dongRaw.replaceAll(' ', '');
+
+      if (gu.isEmpty || dong.isEmpty) return null;
+
+      final label = '$gu/$dong';
+      final id = _regionToId[label];
+      if (id == null) return null;
+
+      return {'region_label': label, 'region_id': id.toString()};
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ========== 서버 통신 ==========
   Future<bool> _saveRouteToServer() async {
-    if (_walkedPath.isEmpty) return false;
+    // ✅ 저장용 경로 확보(우선순위: walkedPath → 현재위치 → 계획경로 첫점)
+    List<LatLng> path = _walkedPath;
+    if (path.isEmpty) {
+      if (_currentPosition != null) {
+        path = [LatLng(_currentPosition!.latitude, _currentPosition!.longitude)];
+      } else if (widget.polylinePoints.isNotEmpty) {
+        path = [widget.polylinePoints.first];
+      }
+    }
 
-    // ✅ DB 스키마 맞춤: *_id 컬럼으로 전송
-    final roadTypeId = _roadTypeCode[_selectedCategory] ?? "01";
+    if (path.isEmpty) {
+      _showErrorSnackBar('저장할 좌표가 없습니다');
+      return false;
+    }
+
+    // 대표 road_type_id는 첫 번째 선택값
+    final primaryCategory = _selectedCategories.isNotEmpty
+        ? _selectedCategories.first
+        : '포장도로';
+
+    final roadTypeId = _roadTypeCode[primaryCategory] ?? "01";
     final transportId = _transportCode[_selectedTransport] ?? "01";
+
+    // ✅ 지역 태그는 "저장 기준 좌표(path.last)"로 역지오코딩
+    final regionInfo = await _resolveRegionTag(base: path.last);
+    final regionId = regionInfo?['region_id'] ?? "00";       // 못 찾으면 미지정
+    final regionLabel = regionInfo?['region_label'];         // 참고용
 
     final body = {
       'user_id': widget.userId,
       'route_name': _currentRouteName ?? widget.routeName,
-      'route_path': _walkedPath.map((p) => [p.latitude, p.longitude]).toList(),
-      'region_id': _defaultRegionId,
-      'road_type_id': roadTypeId,
+      'route_path': path.map((p) => [p.latitude, p.longitude]).toList(),
+
+      // ★ 지역 정보
+      'region_id': regionId,
+      if (regionLabel != null) 'region_label': regionLabel,
+
+      'road_type_id': roadTypeId,        // 대표 1개
+      'roadTypeLabel': primaryCategory,
       'transport_id': transportId,
-      // 참고: 아래 메타는 서버가 무시해도 무방. 필요 없으면 제거 가능
+      'transportLabel': _selectedTransport,
+
+      // 참고(서버가 무시해도 OK): 전체 선택 라벨 배열
+      'category_labels': _selectedCategories,
+
       'distance_km': distanceInKm,
       'duration_minutes': _elapsed.inMinutes,
       'calories': calories,
@@ -365,7 +464,7 @@ class _RunningStartScreenState extends State<RunningStartScreen>
     try {
       final response = await http
           .post(
-        Uri.parse('http://15.164.251.104:5000/add_route'),
+        Uri.parse('http://3.39.231.226:5000/add_route'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
       )
@@ -391,14 +490,14 @@ class _RunningStartScreenState extends State<RunningStartScreen>
       final routeName = await _showRouteNameDialog();
       if (routeName == null || routeName.isEmpty) return;
 
-      final pathType = await _showCategoryDialog();
-      if (pathType == null || pathType.isEmpty) return;
+      final pathTypes = await _showCategoryMultiDialog(); // ★ 복수 선택
+      if (pathTypes == null || pathTypes.isEmpty) return;
 
       final transport = await _showTransportDialog();
       if (transport == null || transport.isEmpty) return;
 
       _currentRouteName = routeName;
-      _selectedCategory = pathType;
+      _selectedCategories = pathTypes;
       _selectedTransport = transport;
     }
 
@@ -426,26 +525,26 @@ class _RunningStartScreenState extends State<RunningStartScreen>
     );
   }
 
-  // 길 유형
-  Future<String?> _showCategoryDialog() async {
-    return await showDialog<String>(
+  // (신규) 길 유형 복수 선택
+  Future<List<String>?> _showCategoryMultiDialog() async {
+    return await showDialog<List<String>>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => _CategoryDialog(
+      builder: (context) => _MultiSelectDialog(
         titleText: '길 유형을 선택해주세요',
-        initialValue: _selectedCategory,
         options: _pathTypes,
+        initialSelected: _selectedCategories,
         confirmText: '선택 완료',
       ),
     );
   }
 
-  // 이동수단
+  // 이동수단(단일 선택 유지)
   Future<String?> _showTransportDialog() async {
     return await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => _CategoryDialog(
+      builder: (context) => _SingleSelectDialog(
         titleText: '이동 수단을 선택해주세요',
         initialValue: _selectedTransport,
         options: _transportModes,
@@ -460,8 +559,8 @@ class _RunningStartScreenState extends State<RunningStartScreen>
       barrierDismissible: false,
       builder: (context) => _CompletionDialog(
         routeName: _currentRouteName ?? '',
-        category: _selectedCategory,   // 표시용 라벨 유지
-        transportMode: _selectedTransport, // 표시용 라벨 유지
+        category: categoriesText,              // ★ join된 문자열
+        transportMode: _selectedTransport,     // 단일 라벨
         elapsed: _elapsed,
         distance: distanceInKm,
         steps: estimatedSteps,
@@ -478,8 +577,9 @@ class _RunningStartScreenState extends State<RunningStartScreen>
             'distance': distanceInKm,
             'calories': calories,
             'steps': estimatedSteps,
-            // 상위로 넘길 때는 라벨 그대로(호환성)
-            'category': _selectedCategory,
+            // 호환성 + 확장성: 문자열과 배열 모두 제공
+            'category': categoriesText,          // 기존 호환(문자열)
+            'categories': _selectedCategories,   // 신규(리스트)
             'transport_mode': _selectedTransport,
           });
         },
@@ -955,9 +1055,9 @@ class _RunningStartScreenState extends State<RunningStartScreen>
                       .withOpacity(0.3),
                 ),
                 icon: Icon(_isRunning ? Icons.pause : Icons.play_arrow, size: 24),
-                label: const Text(
-                  "일시정지",
-                  style: TextStyle(
+                label: Text(
+                  _isRunning ? "일시정지" : "시작",
+                  style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
@@ -993,14 +1093,14 @@ class _RunningStartScreenState extends State<RunningStartScreen>
   }
 }
 
-// ========== 공용 선택 다이얼로그 위젯 ==========
-class _CategoryDialog extends StatefulWidget {
+// ========== 단일 선택 다이얼로그 (이동수단에 사용) ==========
+class _SingleSelectDialog extends StatefulWidget {
   final String titleText;
   final String initialValue;
   final List<String> options;
   final String confirmText;
 
-  const _CategoryDialog({
+  const _SingleSelectDialog({
     required this.titleText,
     required this.initialValue,
     required this.options,
@@ -1008,10 +1108,10 @@ class _CategoryDialog extends StatefulWidget {
   });
 
   @override
-  State<_CategoryDialog> createState() => _CategoryDialogState();
+  State<_SingleSelectDialog> createState() => _SingleSelectDialogState();
 }
 
-class _CategoryDialogState extends State<_CategoryDialog> {
+class _SingleSelectDialogState extends State<_SingleSelectDialog> {
   late String _selected;
 
   @override
@@ -1048,7 +1148,9 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                   padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFF00BCD4).withOpacity(0.1) : null,
+                    color: isSelected
+                        ? const Color(0xFF00BCD4).withOpacity(0.1)
+                        : null,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: isSelected
@@ -1108,6 +1210,160 @@ class _CategoryDialogState extends State<_CategoryDialog> {
               ),
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+// ========== 복수 선택 다이얼로그 (길 유형에 사용) ==========
+class _MultiSelectDialog extends StatefulWidget {
+  final String titleText;
+  final List<String> options;
+  final List<String> initialSelected;
+  final String confirmText;
+
+  const _MultiSelectDialog({
+    required this.titleText,
+    required this.options,
+    required this.initialSelected,
+    this.confirmText = '선택 완료',
+  });
+
+  @override
+  State<_MultiSelectDialog> createState() => _MultiSelectDialogState();
+}
+
+class _MultiSelectDialogState extends State<_MultiSelectDialog> {
+  late Set<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.initialSelected.toSet();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: Colors.white,
+      title: Text(
+        widget.titleText,
+        style: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF1A1A1A),
+        ),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: widget.options.map((opt) {
+            final checked = _selected.contains(opt);
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    setState(() {
+                      if (checked) {
+                        _selected.remove(opt);
+                      } else {
+                        _selected.add(opt);
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: checked ? const Color(0xFF00BCD4).withOpacity(0.08) : null,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: checked ? const Color(0xFF00BCD4) : Colors.grey.shade300,
+                        width: checked ? 2 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: checked,
+                          onChanged: (_) {
+                            setState(() {
+                              if (checked) {
+                                _selected.remove(opt);
+                              } else {
+                                _selected.add(opt);
+                              }
+                            });
+                          },
+                          activeColor: const Color(0xFF00BCD4),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            opt,
+                            style: TextStyle(
+                              fontWeight: checked ? FontWeight.w700 : FontWeight.w500,
+                              color: checked ? const Color(0xFF00BCD4) : const Color(0xFF1A1A1A),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+      actions: [
+        Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  '취소',
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () {
+                  final result = _selected.toList();
+                  Navigator.pop(context, result);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00BCD4),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text(
+                  '선택 완료',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -1227,7 +1483,7 @@ class _RouteNameDialogState extends State<_RouteNameDialog> {
 // ========== 완료 요약 다이얼로그 ==========
 class _CompletionDialog extends StatelessWidget {
   final String routeName;
-  final String category;       // 길 유형(라벨)
+  final String category;       // 길 유형(라벨, 조인된 문자열)
   final String transportMode;  // 이동수단(라벨)
   final Duration elapsed;
   final double distance;

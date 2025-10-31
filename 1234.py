@@ -1,14 +1,17 @@
 # app.py
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.exc import SQLAlchemyError, OperationalError
-from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError, OperationalError, IntegrityError
+from sqlalchemy import text, or_
 import hashlib
 import random
 import json
 import logging
 import threading
 import time
+from datetime import datetime, timedelta
+import math, json
+from flask import request, jsonify
 
 # ─────────────────────────────────────────────────────
 # Flask 생성 및 기본 설정
@@ -16,7 +19,7 @@ import time
 app = Flask(__name__)
 
 # DB & SQLAlchemy 설정
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@15.164.163.171/walkcanvas'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://walk:1234@3.39.231.226/walkcanvas'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_pre_ping": True,
@@ -40,6 +43,41 @@ logging.basicConfig(
 
 # DB 객체
 db = SQLAlchemy(app)
+
+# ─────────────────────────────────────────────────────
+# 서버 내 매핑(라벨↔ID) — 클라이언트와 동일한 정책
+# ─────────────────────────────────────────────────────
+ROAD_TYPE_ID_TO_NAME = {
+    101: '포장도로',
+    102: '비포장도로',
+    103: '등산로',
+    104: '짧은 산책로',
+    105: '긴 산책로',
+    106: '운동용 산책로',
+}
+# 러닝 화면에서 1~6 코드로 올 가능성 지원
+ROAD_TYPE_ID_TO_NAME_ALT = {
+    1: '포장도로',
+    2: '비포장도로',
+    3: '등산로',
+    4: '짧은 산책로',
+    5: '긴 산책로',
+    6: '운동용 산책로',
+}
+TRANSPORT_ID_TO_NAME = {
+    201: '걷기',
+    202: '뜀걸음',
+    203: '자전거',
+    204: '휠체어',
+    205: '유모차',
+}
+TRANSPORT_ID_TO_NAME_ALT = {
+    1: '걷기',
+    2: '뜀걸음',
+    3: '자전거',
+    4: '휠체어',
+    5: '유모차',
+}
 
 # ─────────────────────────────────────────────────────
 # 전역 에러 핸들러 & 세션 정리
@@ -74,7 +112,6 @@ def healthz():
 # ─────────────────────────────────────────────────────
 # DB 워밍업 (첫 요청 전에 커넥션 풀 예열)
 # ─────────────────────────────────────────────────────
-
 def warmup_db_pool():
     logging.info("🔥 Warming up DB engine & pool ...")
     try:
@@ -97,6 +134,30 @@ def _db_keepalive():
             db.session.rollback()
             logging.exception("keepalive failed; will continue")
 
+def jaccard(a: set, b: set):
+    if not a and not b: return 0.0
+    return len(a & b) / len(a | b)
+
+def exp_decay(x):
+    return math.exp(-abs(x))
+
+def recency_boost(created_at):
+    days = (datetime.utcnow() - created_at).days if created_at else 180
+    return max(0.2, 1.0 - (days/180.0))
+
+def popularity_norm(fav_count, max_fav):
+    if max_fav <= 0: return 0.0
+    return min(1.0, (fav_count or 0) / max_fav)
+
+def weather_fit(route_tags: set, weather_hint: str|None):
+    if not weather_hint: return 0.0
+    hot_pref = {'그늘', '숲길', '강변'}
+    rain_pref = {'실내연결', '도심', '지하보도 인접'}
+    if weather_hint == 'hot':  return 1.0 if route_tags & hot_pref else 0.0
+    if weather_hint == 'rain': return 1.0 if route_tags & rain_pref else 0.0
+    return 0.0
+
+
 # ======================= Models =======================
 class User(db.Model):
     __tablename__ = 'user'
@@ -109,18 +170,40 @@ class User(db.Model):
 class Route(db.Model):
     __tablename__ = 'route'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    user_id = db.Column(db.String(80), nullable=False)
+    # ✅ FK + CASCADE (DB 마이그레이션과 일치)
+    user_id = db.Column(
+        db.String(80),
+        db.ForeignKey('user.user_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
     route_name = db.Column(db.String(120), nullable=False)
     route_path = db.Column(db.Text)          # JSON 문자열
     region_id = db.Column(db.String(10))     # VARCHAR(10)
-    road_type_id = db.Column(db.String(10))
-    transport_id = db.Column(db.String(10))
+    region_label = db.Column(db.String(80))  # 예: "중구/부평동"  ← ★신규
+    road_type_id = db.Column(db.String(10))  # (레거시) 단일값
+    transport_id = db.Column(db.String(10))  # 단일값
+
+    # ✅ 신규: 복수 길유형 / 라벨 저장 (JSON 문자열)
+    road_type_ids = db.Column(db.Text)       # 예: "[101,102]" 또는 "[1,2]"
+    category_labels = db.Column(db.Text)     # 예: ["포장도로","비포장도로"]
 
 class FavoriteRoute(db.Model):
     __tablename__ = 'favorite_route'
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-    user_id = db.Column(db.String(80), db.ForeignKey('user.user_id'), nullable=False)
-    route_id = db.Column(db.Integer, db.ForeignKey('route.id'), nullable=False)
+    # ✅ FK + CASCADE (DB 마이그레이션과 일치)
+    user_id = db.Column(
+        db.String(80),
+        db.ForeignKey('user.user_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+    route_id = db.Column(
+        db.Integer,
+        db.ForeignKey('route.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'route_id', name='user_route_unique'),
@@ -129,6 +212,11 @@ class FavoriteRoute(db.Model):
 # ======================= Utils =======================
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(plain: str, hashed: str) -> bool:
+    if not plain or not hashed:
+        return False
+    return hash_password(plain) == hashed
 
 def _safe_json_loads(s, fallback):
     if s is None:
@@ -144,6 +232,137 @@ def _safe_json_loads(s, fallback):
         except Exception:
             return fallback
     return fallback
+
+def _ensure_route_extra_columns():
+    """
+    route 테이블에 road_type_ids, category_labels, region_label 컬럼이 없으면 추가합니다.
+    """
+    with db.engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'route'
+        """)).fetchall()
+        cols = {r[0] for r in rows}
+
+        alters = []
+        if 'road_type_ids' not in cols:
+            alters.append("ADD COLUMN road_type_ids TEXT NULL")
+        if 'category_labels' not in cols:
+            alters.append("ADD COLUMN category_labels TEXT NULL")
+        if 'region_label' not in cols:
+            alters.append("ADD COLUMN region_label VARCHAR(80) NULL")
+
+        if alters:
+            sql = "ALTER TABLE route " + ", ".join(alters)
+            logging.info("🔧 Applying migration: %s", sql)
+            conn.execute(text(sql))
+            logging.info("✅ Migration done")
+
+def _normalize_list(value):
+    """
+    문자열(JSON/CSV) 또는 리스트를 ['값','값'] 형태 리스트로 변환
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        # JSON 배열 시도
+        try:
+            v = json.loads(s)
+            if isinstance(v, list):
+                return [str(x).strip() for x in v if str(x).strip()]
+        except Exception:
+            pass
+        # CSV
+        return [x.strip() for x in s.split(",") if x.strip()]
+    return []
+
+def _map_road_type_labels_from_ids(ids_str_list):
+    """
+    '101','1','포장도로' 등 섞여 들어올 수 있음 → 한글 라벨 리스트로 변환
+    """
+    out = []
+    for raw in ids_str_list:
+        label = None
+        # 숫자 형태면 매핑
+        try:
+            n = int(raw)
+            label = ROAD_TYPE_ID_TO_NAME.get(n) or ROAD_TYPE_ID_TO_NAME_ALT.get(n)
+        except Exception:
+            pass
+        # 라벨 그대로 들어온 경우
+        if label is None and raw:
+            label = raw
+        if label and label not in out:
+            out.append(label)
+    return out
+
+def _json_or_empty(value):
+    try:
+        return json.loads(value) if isinstance(value, str) else (value or [])
+    except Exception:
+        return []
+
+def _apply_multi_id_filter(q, single_col, multi_text_col, ids):
+    """
+    road_type_id 단일값 OR road_type_ids(JSON 텍스트)에 포함 여부를 동시에 필터링
+    ids는 문자열 리스트 (예: ["101","102","1","2"])
+    """
+    if not ids:
+        return q
+    id_list = [str(x) for x in ids]
+    like_clauses = [multi_text_col.like(f'%"{i}"%') for i in id_list]
+    return q.filter(or_(single_col.in_(id_list), *like_clauses))
+
+def _ensure_fk_cascade():
+    """
+    없는 FK만 안전하게 추가.
+    ※ favorite_route FK 재정의는 수동 SQL로 이미 처리했다는 전제.
+    """
+    with db.engine.connect() as conn:
+        # route.user_id → user.user_id
+        fk_exists = conn.execute(text("""
+            SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND CONSTRAINT_NAME = 'route_user_fk'
+        """)).scalar()
+        if not fk_exists:
+            logging.info("🔧 Adding missing FK: route_user_fk (CASCADE)")
+            conn.execute(text("""
+                ALTER TABLE route
+                  ADD INDEX IF NOT EXISTS idx_route_user_id (user_id),
+                  ADD CONSTRAINT route_user_fk
+                    FOREIGN KEY (user_id) REFERENCES user(user_id)
+                    ON DELETE CASCADE
+            """))
+            logging.info("✅ FK route_user_fk added")
+
+        # recent_route.user_id → user.user_id (있을 때만)
+        fk_exists = conn.execute(text("""
+            SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND CONSTRAINT_NAME = 'recent_route_user_fk'
+        """)).scalar()
+        if not fk_exists:
+            tbl_exists = conn.execute(text("""
+                SELECT COUNT(*) FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'recent_route'
+            """)).scalar()
+            if tbl_exists:
+                logging.info("🔧 Adding missing FK: recent_route_user_fk (CASCADE)")
+                conn.execute(text("""
+                    ALTER TABLE recent_route
+                      ADD INDEX IF NOT EXISTS idx_recent_user_id (user_id),
+                      ADD CONSTRAINT recent_route_user_fk
+                        FOREIGN KEY (user_id) REFERENCES user(user_id)
+                        ON DELETE CASCADE
+                """))
+                logging.info("✅ FK recent_route_user_fk added")
 
 # ======================= Auth/Account =======================
 def Login(ID, PW):
@@ -223,6 +442,34 @@ def check_id_get():
     exists = User.query.filter_by(user_id=user_id).first() is not None
     return jsonify({"exists": exists}), 200
 
+# ✅ 계정 삭제(하드 삭제): 비밀번호 검증 + FK CASCADE로 하위 전부 삭제
+@app.route('/users/<string:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    data = request.get_json(silent=True) or {}
+    password = (data.get("password") or "").strip()
+
+    try:
+        user = User.query.filter_by(user_id=user_id).first()
+        if not user:
+            return jsonify({"ok": False, "message": "존재하지 않는 사용자"}), 404
+
+        if not verify_password(password, user.password):
+            return jsonify({"ok": False, "message": "비밀번호가 올바르지 않습니다."}), 401
+
+        db.session.delete(user)   # FK CASCADE에 의해 routes/favorites/recent가 자동 삭제
+        db.session.commit()
+        return jsonify({"ok": True, "message": "계정을 삭제했습니다."}), 200
+
+    except IntegrityError as e:
+        db.session.rollback()
+        return jsonify({"ok": False, "message": "무결성 오류로 삭제 실패", "detail": str(e.orig)}), 409
+    except (SQLAlchemyError, OperationalError) as e:
+        db.session.rollback()
+        return jsonify({"ok": False, "message": "DB 오류로 삭제 실패", "detail": str(e)}), 500
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"ok": False, "message": "서버 오류로 삭제 실패", "detail": str(e)}), 500
+
 # ======================= Routes (경로) =======================
 @app.route('/add_route', methods=['POST'])
 def add_route():
@@ -235,8 +482,15 @@ def add_route():
     route_name = data.get("route_name")
     route_path = data.get("route_path")
     region_id = data.get("region_id")
+    region_label = data.get("region_label")  # ★ 신규: "중구/부평동" 등
+
+    # 하위호환 단일값
     road_type_id = data.get("road_type_id")
     transport_id = data.get("transport_id")
+
+    # ✅ 신규 입력(복수/라벨 모두 허용)
+    road_type_ids_raw = data.get("road_type_ids") or data.get("road_types")
+    category_labels_raw = data.get("category_labels") or data.get("categories")
 
     if not all([user_id, route_name, route_path]):
         return jsonify({"message": "경로명, 좌표, 사용자 ID는 필수입니다."}), 400
@@ -246,13 +500,30 @@ def add_route():
         if not isinstance(route_path_list, list):
             raise TypeError("route_path는 리스트 형태여야 합니다.")
 
+        # 🔁 길 유형 복수값 정규화
+        road_type_ids_list = _normalize_list(road_type_ids_raw)
+        category_labels_list = _normalize_list(category_labels_raw)
+
+        # 라벨이 없고 ID만 있는 경우 라벨 유도
+        if not category_labels_list and road_type_ids_list:
+            category_labels_list = _map_road_type_labels_from_ids(road_type_ids_list)
+
+        # 단일 road_type_id만 있는 경우, 복수값에도 반영
+        if (not road_type_ids_list) and road_type_id:
+            road_type_ids_list = [str(road_type_id)]
+            if not category_labels_list:
+                category_labels_list = _map_road_type_labels_from_ids(road_type_ids_list)
+
         new_route = Route(
             user_id=user_id,
             route_name=route_name,
             route_path=json.dumps(route_path_list, ensure_ascii=False),
             region_id=str(region_id) if region_id is not None else None,
+            region_label=str(region_label) if region_label else None,  # ★ 저장
             road_type_id=str(road_type_id) if road_type_id is not None else None,
             transport_id=str(transport_id) if transport_id is not None else None,
+            road_type_ids=json.dumps(road_type_ids_list, ensure_ascii=False) if road_type_ids_list else None,
+            category_labels=json.dumps(category_labels_list, ensure_ascii=False) if category_labels_list else None,
         )
         db.session.add(new_route)
         db.session.commit()
@@ -260,7 +531,11 @@ def add_route():
         return jsonify({
             "message": "경로가 성공적으로 등록되었습니다.",
             "route_id": new_route.id,
-            "route_name": route_name
+            "route_name": route_name,
+            "region_id": new_route.region_id,
+            "region_label": new_route.region_label,  # ★ 응답 포함
+            "road_type_ids": _json_or_empty(new_route.road_type_ids or "[]"),
+            "category_labels": _json_or_empty(new_route.category_labels or "[]"),
         }), 200
 
     except TypeError as e:
@@ -288,8 +563,12 @@ def recent_route():
         "route_path": _safe_json_loads(r.route_path, []),
         "polyline": _safe_json_loads(r.route_path, []),
         "region_id": r.region_id,
+        "region_label": r.region_label,   # ★
         "road_type_id": r.road_type_id,
         "transport_id": r.transport_id,
+        # ✅ 확장 필드
+        "road_type_ids": _json_or_empty(r.road_type_ids or "[]"),
+        "category_labels": _json_or_empty(r.category_labels or "[]"),
     })
 
 @app.route('/save_recent_route', methods=['POST'])
@@ -302,7 +581,8 @@ def delete_route(route_id):
     if not route_to_delete:
         return jsonify({"message": "경로를 찾을 수 없습니다."}), 404
     try:
-        FavoriteRoute.query.filter_by(route_id=route_id).delete()
+        # favorite_route는 FK CASCADE로 자동 정리되지만, 아래 한 줄은 무해한 보조장치
+        db.session.query(FavoriteRoute).filter_by(route_id=route_id).delete()
         db.session.delete(route_to_delete)
         db.session.commit()
         return jsonify({"message": "경로가 성공적으로 삭제되었습니다."}), 200
@@ -343,8 +623,11 @@ def get_routes():
                 "route_path": _safe_json_loads(r.route_path, []),
                 "polyline": _safe_json_loads(r.route_path, []),
                 "region_id": r.region_id,
+                "region_label": r.region_label,  # ★
                 "road_type_id": r.road_type_id,
                 "transport_id": r.transport_id,
+                "road_type_ids": _json_or_empty(r.road_type_ids or "[]"),
+                "category_labels": _json_or_empty(r.category_labels or "[]"),
                 "is_favorite": r.id in favorite_route_ids,
                 "favorite_count": fav_counts.get(r.id, 0)
             }
@@ -373,10 +656,10 @@ def random_user_route():
     q = Route.query
     if region_ids:
         q = q.filter(Route.region_id.in_(region_ids))
-    if road_type_ids:
-        q = q.filter(Route.road_type_id.in_(road_type_ids))
     if transport_ids:
         q = q.filter(Route.transport_id.in_(transport_ids))
+    if road_type_ids:
+        q = _apply_multi_id_filter(q, Route.road_type_id, Route.road_type_ids, road_type_ids)
 
     candidates = q.all()
     if not candidates:
@@ -390,8 +673,12 @@ def random_user_route():
         "route_path": _safe_json_loads(route.route_path, []),
         "polyline": _safe_json_loads(route.route_path, []),
         "region_id": route.region_id,
+        "region_label": route.region_label,  # ★
         "road_type_id": route.road_type_id,
         "transport_id": route.transport_id,
+        # ✅ 확장 필드
+        "road_type_ids": _json_or_empty(route.road_type_ids or "[]"),
+        "category_labels": _json_or_empty(route.category_labels or "[]"),
     }), 200
 
 # ======================= Favorites =======================
@@ -463,10 +750,12 @@ def get_favorites():
 
     if region_ids:
         q = q.filter(Route.region_id.in_(region_ids))
-    if road_type_ids:
-        q = q.filter(Route.road_type_id.in_(road_type_ids))
     if transport_ids:
         q = q.filter(Route.transport_id.in_(transport_ids))
+    if road_type_ids:
+        # join 쿼리에서도 road_type_ids LIKE 매칭
+        like_clauses = [Route.road_type_ids.like(f'%"{i}"%') for i in road_type_ids]
+        q = q.filter(or_(Route.road_type_id.in_(road_type_ids), *like_clauses))
 
     rows = q.all()
 
@@ -485,8 +774,11 @@ def get_favorites():
                 "route_path": _safe_json_loads(route.route_path, []),
                 "polyline": _safe_json_loads(route.route_path, []),
                 "region_id": route.region_id,
+                "region_label": route.region_label,  # ★
                 "road_type_id": route.road_type_id,
                 "transport_id": route.transport_id,
+                "road_type_ids": _json_or_empty(route.road_type_ids or "[]"),
+                "category_labels": _json_or_empty(route.category_labels or "[]"),
                 "is_favorite": True,
                 "favorite_count": fav_counts.get(route.id, 0)
             }
@@ -543,10 +835,10 @@ def search_routes():
 
         if region_ids:
             q = q.filter(Route.region_id.in_([str(x) for x in region_ids]))
-        if road_type_ids:
-            q = q.filter(Route.road_type_id.in_([str(x) for x in road_type_ids]))
         if transport_ids:
             q = q.filter(Route.transport_id.in_([str(x) for x in transport_ids]))
+        if road_type_ids:
+            q = _apply_multi_id_filter(q, Route.road_type_id, Route.road_type_ids, [str(x) for x in road_type_ids])
 
         if only_fav:
             if not fav_user_id:
@@ -583,8 +875,11 @@ def search_routes():
                 "route_path": _safe_json_loads(r.route_path, []),
                 "polyline": _safe_json_loads(r.route_path, []),
                 "region_id": r.region_id,
+                "region_label": r.region_label,  # ★
                 "road_type_id": r.road_type_id,
                 "transport_id": r.transport_id,
+                "road_type_ids": _json_or_empty(r.road_type_ids or "[]"),
+                "category_labels": _json_or_empty(r.category_labels or "[]"),
                 "favorite_count": fav_counts.get(r.id, 0),
                 "is_favorite": r.id in user_favs
             })
@@ -615,11 +910,17 @@ if __name__ == '__main__':
         inspector = db.inspect(db.engine)
         print("📋 생성된 테이블 목록:", inspector.get_table_names())
 
-        # 🔥 워밍업을 여기서 직접 호출 (Flask 3.x 대응)
+        # 🔧 새 컬럼 보장 (road_type_ids, category_labels, region_label)
+        _ensure_route_extra_columns()
+
+        # 🔧 (없는 FK만) 보정
+        _ensure_fk_cascade()
+
+        # 🔥 워밍업
         warmup_db_pool()
 
     # ✅ DB/앱 초기화가 끝난 뒤 keepalive 시작
     threading.Thread(target=_db_keepalive, daemon=True).start()
 
-    print("🚀 Flask 서버 실행 중 0924")
+    print("🚀 Flask 서버 실행 중 (region_label enabled)")
     app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)

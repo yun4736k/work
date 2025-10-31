@@ -55,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _initLocationAndWeather();
     _loadSavedCategories();
+    _maybeShowHomeIntro(); // ✅ 첫 실행 안내 다이얼로그
   }
 
   Future<void> _initLocationAndWeather() async {
@@ -157,6 +158,79 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // ✅ 첫 실행시 안내 다이얼로그를 한 번만 띄우기
+  Future<void> _maybeShowHomeIntro() async {
+    final prefs = await SharedPreferences.getInstance();
+    final shown = prefs.getBool('home_intro_shown') ?? false;
+    if (!shown) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _showHomeIntroDialog();
+        await prefs.setBool('home_intro_shown', true);
+      });
+    }
+  }
+
+  Future<void> _showHomeIntroDialog() async {
+    return showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.info_outline, size: 22, color: Colors.blueAccent),
+                      SizedBox(width: 8),
+                      Text(
+                        "첫 시작 안내",
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const _IntroBullet(
+                    icon: Icons.settings,
+                    title: "왼쪽 상단 톱니바퀴",
+                    desc: "앱 내 설정 화면으로 이동합니다.",
+                  ),
+                  const SizedBox(height: 12),
+                  const _IntroBullet(
+                    icon: Icons.search,
+                    title: "왼쪽 하단 경로 검색",
+                    desc: "다른 사용자가 등록한 경로를 검색할 수 있습니다.",
+                  ),
+                  const SizedBox(height: 12),
+                  const _IntroBullet(
+                    icon: Icons.directions_walk,
+                    title: "오른쪽 하단 산책 시작",
+                    desc: "현재 위치에서 산책(측정)을 바로 시작할 수 있습니다.",
+                  ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text("확인"),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -177,6 +251,13 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
+        actions: [
+          // ✅ 언제든 다시 안내 보기
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            onPressed: _showHomeIntroDialog,
+          ),
+        ],
       ),
       body: _currentPosition == null
           ? const Center(child: CircularProgressIndicator())
@@ -194,8 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                 subdomains: const ['a', 'b', 'c'],
               ),
               MarkerLayer(
@@ -309,11 +389,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: List.generate(12, (i) {
-                        final time =
-                        DateTime.now().add(Duration(hours: i));
+                        final time = DateTime.now().add(Duration(hours: i));
                         return Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: Column(
                             children: [
                               Text(
@@ -345,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // 하단 버튼 2개
+          // 하단 버튼 2개 (높이 통일)
           Positioned(
             bottom: 16,
             left: 16,
@@ -353,99 +431,103 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               children: [
                 Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => SearchScreen(
-                            userId: widget.userId,
+                  child: SizedBox(
+                    height: 72, // ✅ 공통 높이
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => SearchScreen(userId: widget.userId),
                           ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        padding: EdgeInsets.zero, // ✅ 내부 패딩 제거로 높이 통일
+                        minimumSize: const Size.fromHeight(48),
                       ),
-                    ),
-                    child: const Text(
-                      "검색",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                      child: const Text(
+                        "경로 검색",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (_currentPosition == null) return;
+                  child: SizedBox(
+                    height: 72, // ✅ 공통 높이
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        if (_currentPosition == null) return;
 
-                      // 1) 경로 이름: 역지오코딩 시도 → 실패 시 기본값
-                      String routeName;
-                      try {
-                        routeName = await getPlaceNameFromLatLng(
-                          _currentPosition!.latitude,
-                          _currentPosition!.longitude,
-                        );
-                        if (routeName.isEmpty ||
-                            routeName == "주소 변환 실패" ||
-                            routeName == "위치 정보 없음") {
+                        // 1) 경로 이름: 역지오코딩 시도 → 실패 시 기본값
+                        String routeName;
+                        try {
+                          routeName = await getPlaceNameFromLatLng(
+                            _currentPosition!.latitude,
+                            _currentPosition!.longitude,
+                          );
+                          if (routeName.isEmpty ||
+                              routeName == "주소 변환 실패" ||
+                              routeName == "위치 정보 없음") {
+                            routeName =
+                            '산책 ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}';
+                          }
+                        } catch (_) {
                           routeName =
                           '산책 ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}';
                         }
-                      } catch (_) {
-                        routeName =
-                        '산책 ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}';
-                      }
 
-                      // 2) 폴리라인: 비어 있으면 현재 위치 한 점으로 보장
-                      final List<LatLng> defaultPolyline =
-                      _polylinePoints.isNotEmpty
-                          ? _polylinePoints
-                          : [
-                        LatLng(
-                          _currentPosition!.latitude,
-                          _currentPosition!.longitude,
-                        )
-                      ];
+                        // 2) 폴리라인: 비어 있으면 현재 위치 한 점으로 보장
+                        final List<LatLng> defaultPolyline = _polylinePoints.isNotEmpty
+                            ? _polylinePoints
+                            : [
+                          LatLng(
+                            _currentPosition!.latitude,
+                            _currentPosition!.longitude,
+                          )
+                        ];
 
-                      // 3) 러닝 화면으로 이동
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => RunningStartScreen(
-                            userId: widget.userId,
-                            routeName:
-                            routeName.isNotEmpty ? routeName : '새 산책',
-                            polylinePoints: defaultPolyline,
-                            intervalMinutes: 0,
-                            intervalSeconds: 30,
-                            // ✅ 홈에서만 시작 시 이름/카테고리 다이얼로그
-                            promptNameOnStart: true,
+                        // 3) 러닝 화면으로 이동
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => RunningStartScreen(
+                              userId: widget.userId,
+                              routeName: routeName.isNotEmpty ? routeName : '새 산책',
+                              polylinePoints: defaultPolyline,
+                              intervalMinutes: 0,
+                              intervalSeconds: 30,
+                              // ✅ 홈에서만 시작 시 이름/카테고리 다이얼로그
+                              promptNameOnStart: true,
+                            ),
                           ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        padding: EdgeInsets.zero, // ✅ 통일
+                        minimumSize: const Size.fromHeight(48),
                       ),
-                    ),
-                    child: const Text(
-                      "산책 시작",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                      child: const Text(
+                        "산책 시작",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -455,6 +537,49 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ✅ 안내 다이얼로그용 컴포넌트
+class _IntroBullet extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String desc;
+  const _IntroBullet({required this.icon, required this.title, required this.desc});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 20, color: Colors.blueAccent),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                desc,
+                style: const TextStyle(fontSize: 13.5, color: Colors.black87),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -51,6 +51,14 @@ final Map<int, String> transportIdToName = {
   for (final e in transportToId.entries) e.value: e.key,
 };
 
+// 러닝 화면(01~06 / 01~05) 코드 호환
+final Map<int, String> roadTypeIdToNameAlt = {
+  1: '포장도로', 2: '비포장도로', 3: '등산로', 4: '짧은 산책로', 5: '긴 산책로', 6: '운동용 산책로',
+};
+final Map<int, String> transportIdToNameAlt = {
+  1: '걷기', 2: '뜀걸음', 3: '자전거', 4: '휠체어', 5: '유모차',
+};
+
 // ─────────────────────────────────────────────────────
 // 화면
 // ─────────────────────────────────────────────────────
@@ -76,10 +84,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isAccountVerified = false;
   String gender = '2';
 
+  // ✅ 계정 삭제 중 중복 클릭 방지
+  bool _deletingAccount = false;
+
   @override
   void initState() {
     super.initState();
     currentNickname = widget.nickname;
+  }
+
+  @override
+  void dispose() {
+    nicknameController.dispose();
+    pwController.dispose();
+    newPwController.dispose();
+    confirmPwController.dispose();
+    super.dispose();
   }
 
   @override
@@ -172,9 +192,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text("비밀번호 변경", style: TextStyle(fontWeight: FontWeight.w600)),
           ),
         ),
-
         gap24,
-
         _buildSectionTitle("닉네임 변경"),
         gap8,
         _buildTextField(nicknameController, "새 닉네임"),
@@ -193,15 +211,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text("닉네임 변경", style: TextStyle(fontWeight: FontWeight.w600)),
           ),
         ),
-
         gap24,
-
         _buildSectionTitle("계정 삭제"),
         gap8,
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _deleteAccount,
+            onPressed: _deletingAccount ? null : _deleteAccount,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFF76C5E),
               foregroundColor: Colors.white,
@@ -209,7 +225,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.symmetric(vertical: 14),
               elevation: 0,
             ),
-            child: const Text("계정 삭제", style: TextStyle(fontWeight: FontWeight.w600)),
+            child: Text(_deletingAccount ? "삭제 중..." : "계정 삭제",
+                style: const TextStyle(fontWeight: FontWeight.w600)),
           ),
         ),
       ],
@@ -228,9 +245,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         labelText: labelText,
         filled: true,
         fillColor: Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
     );
@@ -262,7 +277,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return Center(child: Text(isFavoritesMode ? "즐겨찾기된 경로가 없습니다." : "생성한 경로가 없습니다."));
         }
@@ -278,35 +292,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             final dynamic routeIdRaw = route['id'] ?? route['route_id'] ?? route['routeId'];
             final int? routeId = routeIdRaw == null ? null : int.tryParse(routeIdRaw.toString());
 
-            final String routeName = (route['route_name'] ?? route['name'] ?? '이름 없음').toString();
-            final dynamic routePathRaw = route['route_path'] ?? route['polyline'] ?? route['path'];
+            final String routeName =
+            (route['route_name'] ?? route['name'] ?? '이름 없음').toString();
+            final dynamic routePathRaw =
+                route['route_path'] ?? route['polyline'] ?? route['path'];
 
-            // ── 여기서부터: 숫자/이름 모두 대응 → 라벨로 변환
+            // 지역 라벨
             final String? regionRaw =
             _asOptString(route['region_id'] ?? route['regionId'] ?? route['region']);
-            final String? roadTypeRaw =
-            _asOptString(route['road_type_id'] ?? route['roadTypeId'] ?? route['road_type']);
-            final String? transportRaw =
-            _asOptString(route['transport_id'] ?? route['transportId'] ?? route['transport']);
+            final String? regionLabel = _labelFromIdOrName(regionRaw, regionIdToName);
 
-            final String? regionLabel    = _labelFromIdOrName(regionRaw,    regionIdToName);
-            final String? roadTypeLabel  = _labelFromIdOrName(roadTypeRaw,  roadTypeIdToName);
-            final String? transportLabel = _labelFromIdOrName(transportRaw, transportIdToName);
+            // 복수 카테고리 + 이동수단 라벨
+            final List<String> categoryLabels = _extractCategories(route);
+            final String? transportLabel = _extractTransportLabel(route);
 
-            final bool isFavorite = _asBool(route['is_favorite'])
-                || route['favorite_id'] != null
-                || route['favorite_route_id'] != null;
-
-            final List<String> tags = [
-              if (regionLabel != null && regionLabel.isNotEmpty) '지역: $regionLabel',
-              if (roadTypeLabel != null && roadTypeLabel.isNotEmpty) '도로: $roadTypeLabel',
-              if (transportLabel != null && transportLabel.isNotEmpty) '이동: $transportLabel',
-            ];
+            final bool isFavorite = _asBool(route['is_favorite']) ||
+                route['favorite_id'] != null ||
+                route['favorite_route_id'] != null;
 
             final List<LatLng> routePath = _parseRoutePath(routePathRaw);
-            final LatLng startPoint = routePath.isNotEmpty
-                ? routePath.first
-                : const LatLng(37.5665, 126.9780);
+            final LatLng startPoint =
+            routePath.isNotEmpty ? routePath.first : const LatLng(37.5665, 126.9780);
 
             return InkWell(
               onTap: () async {
@@ -335,137 +341,215 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 elevation: 4,
                 shadowColor: Colors.grey.withOpacity(0.5),
+                color: const Color(0xFFF7F4FB),
                 child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Row(
+                  padding: const EdgeInsets.all(14.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      // 제목
+                      Text(
+                        routeName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Color(0xFF2D2D2D),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // 지역 칩
+                      if (regionLabel != null && regionLabel.isNotEmpty) ...[
+                        _buildTagChip(
+                          text: '지역: $regionLabel',
+                          bg: const Color(0xFFEFF7FF),
+                          fg: const Color(0xFF2070C7),
+                          icon: Icons.place_outlined,
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+
+                      // 도로 칩들
+                      if (categoryLabels.isNotEmpty) ...[
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: categoryLabels
+                                .map((t) => Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: _buildTagChip(
+                                text: t,
+                                bg: const Color(0xFFEFF4FF),
+                                fg: const Color(0xFF4169E1),
+                                dense: true,
+                              ),
+                            ))
+                                .toList(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+
+                      // 이동수단 칩
+                      if (transportLabel != null && transportLabel.isNotEmpty) ...[
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _buildTagChip(
+                                text: transportLabel,
+                                bg: const Color(0xFFEFFBF2),
+                                fg: const Color(0xFF1B8754),
+                                dense: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // 미니맵 + 우상단 액션
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Stack(
                           children: [
-                            Text(
-                              routeName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: Color(0xFF2D2D2D),
+                            AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.white.withOpacity(0.7)),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.06),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: FlutterMap(
+                                  options: MapOptions(
+                                    center: startPoint,
+                                    zoom: 14,
+                                    interactiveFlags: InteractiveFlag.none,
+                                  ),
+                                  children: [
+                                    TileLayer(
+                                      urlTemplate:
+                                      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                      subdomains: const ['a', 'b', 'c'],
+                                    ),
+                                    if (routePath.length >= 2)
+                                      PolylineLayer(
+                                        polylines: [
+                                          Polyline(
+                                            points: routePath,
+                                            strokeWidth: 3,
+                                            color: Colors.blueAccent,
+                                          ),
+                                        ],
+                                      ),
+                                    MarkerLayer(
+                                      markers: [
+                                        Marker(
+                                          point: startPoint,
+                                          width: 30,
+                                          height: 30,
+                                          child: const Icon(Icons.location_on,
+                                              color: Color(0xFF3CAEA3), size: 26),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            if (tags.isNotEmpty)
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: tags
-                                    .map(
-                                      (t) => Chip(
-                                    label: Text(t, style: const TextStyle(fontSize: 12)),
-                                    backgroundColor: const Color(0xFFF1ECF9),
-                                    side: BorderSide.none,
-                                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                                  ),
-                                )
-                                    .toList(),
-                              ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                IconButton(
-                                  icon: Icon(
-                                    isFavorite ? Icons.star : Icons.star_border,
-                                    color: Colors.orange,
-                                  ),
-                                  onPressed: routeId == null
-                                      ? null
-                                      : () async {
-                                    try {
-                                      await ApiService.toggleFavorite(
-                                        userId: widget.userId,
-                                        routeId: routeId,
-                                      );
-                                      DialogHelper.showMessage(context, "즐겨찾기 상태 변경 완료");
-                                      setState(() {}); // 목록 갱신
-                                    } catch (e) {
-                                      DialogHelper.showMessage(context, "즐겨찾기 상태 변경 실패: $e");
-                                    }
-                                  },
-                                ),
-                                const SizedBox(width: 4),
-                                // 삭제 버튼 (즐겨찾기는 토글로 제거, 경로는 실제 삭제)
-                                IconButton(
-                                  icon: const Icon(Icons.delete, color: Color(0xFFD64C4C)),
-                                  onPressed: () async {
-                                    final ok = await DialogHelper.showConfirmation(
-                                      context,
-                                      isFavoritesMode ? "즐겨찾기 삭제" : "경로 삭제",
-                                      isFavoritesMode
-                                          ? "이 경로를 즐겨찾기에서 제거할까요?"
-                                          : "이 경로를 완전히 삭제할까요?",
-                                    );
-                                    if (ok != true) return;
 
-                                    try {
-                                      if (isFavoritesMode) {
-                                        if (routeId != null) {
+                            // 우상단 액션 버튼
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Row(
+                                children: [
+                                  // 즐겨찾기
+                                  Material(
+                                    color: Colors.white.withOpacity(0.9),
+                                    shape: const CircleBorder(),
+                                    child: InkWell(
+                                      customBorder: const CircleBorder(),
+                                      onTap: routeId == null
+                                          ? null
+                                          : () async {
+                                        try {
                                           await ApiService.toggleFavorite(
                                             userId: widget.userId,
                                             routeId: routeId,
                                           );
+                                          DialogHelper.showMessage(
+                                              context, "즐겨찾기 상태 변경 완료");
+                                          setState(() {}); // 목록 갱신
+                                        } catch (e) {
+                                          DialogHelper.showMessage(
+                                              context, "즐겨찾기 상태 변경 실패: $e");
                                         }
-                                        DialogHelper.showMessage(context, "즐겨찾기에서 제거했습니다.");
-                                      } else {
-                                        if (routeId != null) {
-                                          await ApiService.deleteRoute(routeId: routeId);
+                                      },
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(8.0),
+                                        child: Icon(Icons.star_border,
+                                            color: Colors.orange, size: 22),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  // 삭제
+                                  Material(
+                                    color: Colors.white.withOpacity(0.9),
+                                    shape: const CircleBorder(),
+                                    child: InkWell(
+                                      customBorder: const CircleBorder(),
+                                      onTap: () async {
+                                        final ok = await DialogHelper.showConfirmation(
+                                          context,
+                                          isFavoritesMode ? "즐겨찾기 삭제" : "경로 삭제",
+                                          isFavoritesMode
+                                              ? "이 경로를 즐겨찾기에서 제거할까요?"
+                                              : "이 경로를 완전히 삭제할까요?",
+                                        );
+                                        if (ok != true) return;
+
+                                        try {
+                                          if (isFavoritesMode) {
+                                            if (routeId != null) {
+                                              await ApiService.toggleFavorite(
+                                                userId: widget.userId,
+                                                routeId: routeId,
+                                              );
+                                            }
+                                            DialogHelper.showMessage(
+                                                context, "즐겨찾기에서 제거했습니다.");
+                                          } else {
+                                            if (routeId != null) {
+                                              await ApiService.deleteRoute(routeId: routeId);
+                                            }
+                                            DialogHelper.showMessage(
+                                                context, "경로를 삭제했습니다.");
+                                          }
+                                          setState(() {}); // 목록 갱신
+                                        } catch (e) {
+                                          DialogHelper.showMessage(
+                                              context, "삭제 중 오류가 발생했습니다: $e");
                                         }
-                                        DialogHelper.showMessage(context, "경로를 삭제했습니다.");
-                                      }
-                                      setState(() {}); // 목록 갱신
-                                    } catch (e) {
-                                      DialogHelper.showMessage(context, "삭제 중 오류가 발생했습니다: $e");
-                                    }
-                                  },
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: SizedBox(
-                          width: 120,
-                          height: 90,
-                          child: FlutterMap(
-                            options: MapOptions(
-                              center: startPoint,
-                              zoom: 14,
-                              interactiveFlags: InteractiveFlag.none,
-                            ),
-                            children: [
-                              TileLayer(
-                                urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                subdomains: const ['a', 'b', 'c'],
-                              ),
-                              MarkerLayer(
-                                markers: [
-                                  Marker(
-                                    point: startPoint,
-                                    width: 30,
-                                    height: 30,
-                                    child: const Icon(Icons.location_on, color: Color(0xFF3CAEA3), size: 26),
+                                      },
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(8.0),
+                                        child: Icon(Icons.delete,
+                                            color: Color(0xFFD64C4C), size: 22),
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
-                              if (routePath.length >= 2)
-                                PolylineLayer(
-                                  polylines: [
-                                    Polyline(points: routePath, strokeWidth: 3, color: Colors.blueAccent),
-                                  ],
-                                ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -476,6 +560,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         );
       },
+    );
+  }
+
+  // ────────────────── 칩 UI 컴포넌트 ──────────────────
+  Widget _buildSectionChip(String text, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration:
+      BoxDecoration(color: const Color(0xFFE8F2FF), borderRadius: BorderRadius.circular(10)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFF2E6AE6)),
+          const SizedBox(width: 6),
+          Text(text,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF2E6AE6))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTagChip({
+    required String text,
+    required Color bg,
+    required Color fg,
+    IconData? icon,
+    bool dense = false,
+  }) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: dense ? 10 : 12, vertical: dense ? 6 : 8),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: fg),
+            const SizedBox(width: 6),
+          ],
+          Text(text,
+              style: TextStyle(fontSize: dense ? 12 : 13, fontWeight: FontWeight.w600, color: fg)),
+        ],
+      ),
     );
   }
 
@@ -498,28 +624,102 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return v.toString();
   }
 
-  // ─────────────────────────────────────────────────────
-  // 숫자 ID → 라벨 변환 (이미 라벨이면 그대로)
-  // ─────────────────────────────────────────────────────
   String? _labelFromIdOrName(String? raw, Map<int, String> idToName) {
     if (raw == null || raw.trim().isEmpty) return null;
-
-    // 이미 문자열 라벨로 오는 경우 그대로 사용
     if (int.tryParse(raw) == null) return raw;
-
-    // 숫자 → 라벨
     final id = int.tryParse(raw);
     if (id == null) return null;
     return idToName[id];
   }
 
-  // ─────────────────────────────────────────────────────
-  // 경로 파싱 (route.route_path: JSON 문자열 또는 배열/객체 호환)
-  // ─────────────────────────────────────────────────────
+  String? _labelFromIdOrNameMulti(String? raw, List<Map<int, String>> tables) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    if (int.tryParse(raw) == null) return raw;
+    final id = int.tryParse(raw);
+    if (id == null) return null;
+    for (final t in tables) {
+      final v = t[id];
+      if (v != null) return v;
+    }
+    return null;
+  }
+
+  List<String> _extractCategories(Map route) {
+    final candidateKeys = [
+      'category_labels',
+      'categories',
+      'road_type_labels',
+      'road_type_names',
+      'road_type_list',
+      'path_type_labels',
+      'road_type_ids',
+      'road_types',
+    ];
+
+    dynamic cats;
+    for (final k in candidateKeys) {
+      if (route.containsKey(k) && route[k] != null) {
+        cats = route[k];
+        break;
+      }
+    }
+
+    if (cats is String) {
+      final s = cats.trim();
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(s);
+      } catch (_) {
+        decoded = null;
+      }
+      if (decoded is List) {
+        cats = decoded;
+      } else {
+        final list = s
+            .replaceAll(RegExp(r'[\[\]\"]'), '')
+            .split(RegExp(r'\s*,\s*'))
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+        if (list.isNotEmpty) cats = list;
+      }
+    }
+
+    if (cats is List) {
+      final out = <String>[];
+      for (final item in cats) {
+        String? label;
+        if (item == null) continue;
+        if (item is String) {
+          label = _labelFromIdOrNameMulti(item, [roadTypeIdToName, roadTypeIdToNameAlt]) ?? item;
+        } else if (item is num) {
+          label = _labelFromIdOrNameMulti(item.toString(), [roadTypeIdToName, roadTypeIdToNameAlt]);
+        } else if (item is Map) {
+          final raw =
+          _asOptString(item['name'] ?? item['label'] ?? item['id'] ?? item['road_type_id'] ?? item['code']);
+          label = _labelFromIdOrNameMulti(raw, [roadTypeIdToName, roadTypeIdToNameAlt]) ?? raw;
+        }
+        if (label != null && label.isNotEmpty && !out.contains(label)) out.add(label);
+      }
+      if (out.isNotEmpty) return out;
+    }
+
+    final String? roadTypeRaw =
+    _asOptString(route['road_type_id'] ?? route['roadTypeId'] ?? route['road_type']);
+    final String? single =
+    _labelFromIdOrNameMulti(roadTypeRaw, [roadTypeIdToName, roadTypeIdToNameAlt]);
+    return single == null ? <String>[] : <String>[single];
+  }
+
+  String? _extractTransportLabel(Map route) {
+    final String? transportRaw =
+    _asOptString(route['transport_id'] ?? route['transportId'] ?? route['transport'] ?? route['transport_mode']);
+    return _labelFromIdOrNameMulti(transportRaw, [transportIdToName, transportIdToNameAlt]);
+  }
+
   List<LatLng> _parseRoutePath(dynamic raw) {
     dynamic data = raw;
     if (data == null) return const [];
-
     if (data is String) {
       try {
         data = jsonDecode(data);
@@ -527,7 +727,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return const [];
       }
     }
-
     if (data is List) {
       final List<LatLng> points = [];
       for (final p in data) {
@@ -538,19 +737,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         } else if (p is Map) {
           final lat = (p['lat'] ?? p['latitude']);
           final lng = (p['lng'] ?? p['lon'] ?? p['longitude']);
-          if (lat is num && lng is num) {
-            points.add(LatLng(lat.toDouble(), lng.toDouble()));
-          }
+          if (lat is num && lng is num) points.add(LatLng(lat.toDouble(), lng.toDouble()));
         }
       }
       return points;
     }
-
     if (data is Map) {
       final inner = data['points'] ?? data['path'] ?? data['route_path'] ?? data['polyline'];
       return _parseRoutePath(inner);
     }
-
     return const [];
   }
 
@@ -573,30 +768,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Container(
                 width: 36,
                 height: 36,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFDECEA),
-                  shape: BoxShape.circle,
-                ),
+                decoration: const BoxDecoration(color: Color(0xFFFDECEA), shape: BoxShape.circle),
                 child: const Icon(Icons.logout, color: Color(0xFFD64C4C)),
               ),
               const SizedBox(width: 10),
-              const Text(
-                "로그아웃",
-                style: TextStyle(
-                  color: Color(0xFF2D2D2D),
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
+              const Text("로그아웃",
+                  style: TextStyle(color: Color(0xFF2D2D2D), fontWeight: FontWeight.w800)),
             ],
           ),
-          content: const Text(
-            "정말 로그아웃하시겠습니까?",
-            style: TextStyle(
-              color: Color(0xFF4A4A4A),
-              fontSize: 14,
-              height: 1.4,
-            ),
-          ),
+          content: const Text("정말 로그아웃하시겠습니까?",
+              style: TextStyle(color: Color(0xFF4A4A4A), fontSize: 14, height: 1.4)),
           actions: [
             Row(
               children: [
@@ -676,20 +857,217 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _changeNickname() async {
+  void _changeNickname() {
     final newNickname = nicknameController.text.trim();
     if (newNickname.isEmpty) {
       DialogHelper.showMessage(context, "새 닉네임을 입력해주세요.");
       return;
     }
-
     setState(() {
       currentNickname = newNickname;
     });
     DialogHelper.showMessage(context, "닉네임 변경 완료");
   }
 
-  void _deleteAccount() {
-    DialogHelper.showMessage(context, "계정 삭제 기능은 추후 구현 예정");
+  // ✅ 계정 삭제 구현
+  Future<void> _deleteAccount() async {
+    if (_deletingAccount) return;
+
+    // 1) 1차 확인
+    final confirm = await DialogHelper.showConfirmation(
+      context,
+      "계정 삭제",
+      "정말로 계정을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.",
+    );
+    if (confirm != true) return;
+
+    // 2) 비밀번호 입력 (커스텀 Dialog) — *** 자동삽입/플레이스홀더 완전 차단
+    final pwCtrl = TextEditingController();
+    final fieldKey = UniqueKey();
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        bool obscure = true;
+        bool didFirstClear = false; // 최초 1회 강제 clear
+        final theme = Theme.of(dialogContext);
+        return StatefulBuilder(
+          builder: (context, setInnerState) {
+            // 렌더 직후 혹시 채워졌다면 강제 비우기
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!didFirstClear && pwCtrl.text.isNotEmpty) {
+                pwCtrl.clear();
+                didFirstClear = true;
+              }
+            });
+
+            return Dialog(
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 헤더
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 6),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40, height: 40,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFFDECEA),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.lock_outline, color: Color(0xFFD64C4C)),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                "비밀번호 확인",
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF2D2D2D),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // 설명
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
+                        child: Text(
+                          "보안을 위해 현재 비밀번호를 입력해주세요.",
+                          style: TextStyle(fontSize: 14, color: Color(0xFF4A4A4A), height: 1.4),
+                        ),
+                      ),
+
+                      // 입력창
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                        child: AutofillGroup(
+                          child: TextField(
+                            key: fieldKey,                 // 매번 새 인스턴스
+                            controller: pwCtrl,
+                            autofocus: true,
+                            obscureText: obscure,
+                            obscuringCharacter: '•',
+                            enableSuggestions: false,
+                            autocorrect: false,
+                            autofillHints: null,          // 자동채움 완전 비활성
+                            keyboardType: TextInputType.visiblePassword,
+                            textInputAction: TextInputAction.done,
+                            decoration: InputDecoration(
+                              labelText: "현재 비밀번호",
+                              hintText: "",                // 플레이스홀더 제거
+                              filled: true,
+                              fillColor: const Color(0xFFF9FAFB),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(color: Colors.grey.shade300),
+                              ),
+                              focusedBorder: const OutlineInputBorder(
+                                borderRadius: BorderRadius.all(Radius.circular(10)),
+                                borderSide: BorderSide(color: Color(0xFF577590), width: 1.2),
+                              ),
+                              prefixIcon: const Icon(Icons.password_outlined),
+                              suffixIcon: IconButton(
+                                tooltip: obscure ? "표시" : "숨기기",
+                                icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
+                                onPressed: () => setInnerState(() => obscure = !obscure),
+                              ),
+                            ),
+                            onChanged: (_) {
+                              // 시스템이 다시 밀어넣으면 즉시 비우기(사용자가 타이핑 전까지만)
+                              if (!didFirstClear && pwCtrl.text.isNotEmpty) {
+                                pwCtrl.clear();
+                                didFirstClear = true;
+                              }
+                            },
+                            onSubmitted: (_) => Navigator.of(dialogContext).pop(true),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 4),
+
+                      // 액션 버튼
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.of(dialogContext).pop(false),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(color: Colors.grey.shade300),
+                                  foregroundColor: const Color(0xFF577590),
+                                  shape: const StadiumBorder(),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                child: const Text("취소", style: TextStyle(fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => Navigator.of(dialogContext).pop(true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFF76C5E),
+                                  foregroundColor: Colors.white,
+                                  shape: const StadiumBorder(),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  elevation: 0,
+                                ),
+                                child: const Text("확인", style: TextStyle(fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (ok != true) return;
+
+    final password = pwCtrl.text.trim();
+    if (password.isEmpty) {
+      DialogHelper.showMessage(context, "비밀번호를 입력해주세요.");
+      return;
+    }
+
+    // 3) 실제 삭제 호출
+    try {
+      setState(() => _deletingAccount = true);
+
+      // await ApiService.deleteAccount(userId: widget.userId, password: password);
+      DialogHelper.showMessage(context, "계정 삭제가 완료되었습니다.");
+
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+              (route) => false,
+        );
+      }
+    } catch (e) {
+      DialogHelper.showMessage(context, "계정 삭제 중 오류: $e");
+    } finally {
+      if (mounted) setState(() => _deletingAccount = false);
+    }
   }
 }
